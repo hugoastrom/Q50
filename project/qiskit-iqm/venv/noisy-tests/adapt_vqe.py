@@ -33,38 +33,7 @@ def commutator(a, b):
     for op in appended_ops:
         psi.append(op[0], [op[1]])
 
-    ab = [["", 1.0] for qubit in range(nqubits)]
-    for pauliop in a:
-        ab[pauliop[1]][0] += pauliop[0]
-    for pauliop in b:
-        ab[pauliop[1]][0] += pauliop[0]
-    for op in ab:
-        while len(op[0]) > 1:
-            reduce_pauli_op(op)
-
-    ba = [["", 1.0] for qubit in range(nqubits)]
-    for pauliop in b:
-        ba[pauliop[1]][0] += pauliop[0]
-    for pauliop in a:
-        ba[pauliop[1]][0] += pauliop[0]
-    for op in ba:
-        while len(op[0]) > 1:
-            reduce_pauli_op(op)
-
-    first_op = ''
-    first_coeff = 1.0
-    for qubit in ab:
-        first_op += "I" if len(qubit[0]) == 0 else qubit[0]
-        first_coeff *= qubit[1]
-        
-    second_op = ''
-    second_coeff = 1.0
-    for qubit in ba:
-        second_op += "I" if len(qubit[0]) == 0 else qubit[0]
-        second_coeff *= qubit[1]
-
-    comm = SparsePauliOp([first_op, second_op], coeffs=[first_coeff, -1.0 * second_coeff])
-    print(comm)
+    comm = a @ b - b @ a
     estimator = Estimator()
 
     exp_val = estimator.run(psi, comm).result().values#.real
@@ -73,19 +42,13 @@ def commutator(a, b):
     
     return exp_val
 
-def apply_gate(qc, op, qbit):
-
-    qc.append(op, [qbit])
-
 if __name__ == "__main__":
     
-    #operator_pool = list[QuantumCurcuit]
-    #operator_pool = [("x", 0), ("z", 0), ("y", 1)]
-    #operator_pool = [(XGate(), 0), (ZGate(), 1)] #GlobalPhaseGate(math.pi / 2) is a global phase of i
-    operator_pool = [[("X", 0)], [("Z", 1)]]
+    #operator_pool = [[("X", 0)], [("Z", 1)]]
+    operator_pool = [SparsePauliOp(["YZ"], coeffs = [complex(0.0, 1.0)]), SparsePauliOp(["IY"], coeffs = [complex(0.0, 1.0)])]
     #qubit_hamiltonian = mapped(fermion_hamiltonian) # From LUCAS/PySCF?
     #q_hamiltonian = ("Z", 0)
-    q_hamiltonian = [("Z", 0)]
+    q_hamiltonian = SparsePauliOp(["ZI"])
     #ansatz = mapped(HF_state) # From LUCAS/PySCF?
     
     
