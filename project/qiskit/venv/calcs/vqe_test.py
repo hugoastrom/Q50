@@ -1,0 +1,126 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+from scipy.optimize import minimize
+from typing import Sequence
+
+ 
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import SparsePauliOp
+from qiskit.primitives.base import BaseEstimatorV2
+from qiskit.circuit.library import XGate
+from qiskit.circuit.library import efficient_su2
+from qiskit.transpiler import PassManager
+from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+from qiskit.transpiler.passes.scheduling import (
+    ALAPScheduleAnalysis,
+    PadDynamicalDecoupling,
+)
+
+from qiskit_ibm_runtime import QiskitRuntimeService
+from qiskit_ibm_runtime import Session, Estimator
+
+from qiskit_ibm_catalog import QiskitServerless, QiskitFunction
+
+def visualize_results(results):
+    plt.plot(results["cost_history"], lw=2)
+    plt.xlabel("Iteration")
+    plt.ylabel("Energy")
+    plt.show()
+
+def build_callback(
+        ansatz: QuantumCircuit,
+        hamiltonian: SparsePauliOp,
+        estimator: BaseEstimatorV2,
+        callback_dict: dict,
+):
+    def callback(current_vector):
+        # Keep track of the number of iterations
+        callback_dict["iters"] += 1
+        # Set the prev_vector to the latest one
+        callback_dict["prev_vector"] = current_vector
+        # Compute the value of the cost function at the current vector
+        current_cost = (
+            estimator.run([(ansatz, hamiltonian, [current_vector])])
+            .result()[0]
+            .data.evs[0]
+        )
+        callback_dict["cost_history"].append(current_cost)
+        # Print to screen on single line
+        print(
+            "Iters. done: {} [Current cost: {}]".format(
+                callback_dict["iters"], current_cost
+            ),
+            end="\r",
+            flush=True,
+        )
+
+  
+    return callback
+
+num_spins = 10
+ansatz = efficient_su2(num_qubits=num_spins, reps=3)
+ 
+# Remember to insert your token in the QiskitRuntimeService constructor
+service = QiskitRuntimeService()
+backend = service.least_busy(
+    operational=True, min_num_qubits=num_spins, simulator=False
+)
+
+coupling = backend.target.build_coupling_map()
+reduced_coupling = coupling.reduce(list(range(num_spins)))
+ 
+edge_list = reduced_coupling.graph.edge_list()
+ham_list = []
+ 
+for edge in edge_list:
+    ham_list.append(("ZZ", edge, 0.5))
+    ham_list.append(("YY", edge, 0.5))
+    ham_list.append(("XX", edge, 0.5))
+ 
+for qubit in reduced_coupling.physical_qubits:
+    ham_list.append(("Z", [qubit], np.random.random() * 2 - 1))
+ 
+hamiltonian = SparsePauliOp.from_sparse_list(ham_list, num_qubits=num_spins)
+ 
+ansatz.draw("mpl", style="iqp")
+
+target = backend.target
+pm = generate_preset_pass_manager(optimization_level=3, backend=backend)
+pm.scheduling = PassManager(
+    [
+        ALAPScheduleAnalysis(durations=target.durations()),
+        PadDynamicalDecoupling(
+            durations=target.durations(),
+            dd_sequence=[XGate(), XGate()],
+            pulse_alignment=target.pulse_alignment,
+        ),
+    ]
+)
+ansatz_ibm = pm.run(ansatz)
+observable_ibm = hamiltonian.apply_layout(ansatz_ibm.layout)
+ansatz_ibm.draw("mpl", scale=0.6, style="iqp", fold=-1, idle_wires=False)
+
+# SciPy minimizer routine
+def cost_func(
+    params: Sequence,
+    ansatz: QuantumCircuit,
+    hamiltonian: SparsePauliOp,
+    estimator: BaseEstimatorV2,
+) -> float:
+    """Ground state energy evaluation."""
+    return (
+        estimator.run([(ansatz, hamiltonian, [params])])
+        .result()[0]
+        .data.evs[0]
+    )
+ 
+ 
+num_params = ansatz_ibm.num_parameters
+params = 2 * np.pi * np.random.random(num_params)
+ 
+callback_dict = {
+    "prev_vector": None,
+    "iters": 0,
+    "cost_history": [],
+}

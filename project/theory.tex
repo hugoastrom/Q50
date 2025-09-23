@@ -1,0 +1,87 @@
+\documentclass[english,a4paper,12pt]{article}
+%\documentclass[english,journal=jctcce,manuscript=article,articletitle=true,layout=twocolumn]{achemso}
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2cm]{geometry}
+
+\usepackage{doi}
+\usepackage[version=4]{mhchem}
+\usepackage{multicol}
+
+\title{}
+\author{}
+\date{}
+
+\begin{document}
+
+\pagestyle{empty}
+
+\section*{Theory}
+
+\noindent The ADAPT ansatze is
+%
+\begin{equation}
+|\psi(\mathbf{\theta})\rangle_N=\prod_{k=1}^{N}e^{\theta_k}\hat{\tau}_k|\psi_\mathrm{ref}\rangle.
+\end{equation}
+%
+At each iteration we grow the ansatze as
+%
+\begin{equation}
+|\psi(\mathbf{\theta})\rangle_{N+1}=e^{\theta_{N+1}\hat{\tau}_{N+1}}|\psi(\mathbf{\theta})\rangle_N,
+\end{equation}
+%
+where
+%
+\begin{equation}
+\begin{split}
+\hat{\tau}_{N+1}&=\text{argmax}_{\hat{\tau}_i\in\{A_j\}_n}\ \frac{\partial}{\partial\theta_i}\langle E\rangle \\
+&=\text{argmax}_{\hat{\tau}_i\in\{A_j\}_n}\ _N\langle\psi(\mathbf{\theta})|[\hat{H},\hat{\tau}_i]|\psi(\mathbf{\theta})\rangle_N.
+\end{split}
+\end{equation}
+%
+$\{A_j\}_n$ is the operator pool for $n$ qubits.
+We have two options:
+%
+\begin{enumerate}
+\item $\{A_j\}_n=\{V_j\}_n=\{Z_n\{V_k\}_{n-1}, iY, iY_{n-1}\}$ and $\{V_j\}_2=\{iZ_2Y_1,iY_2\}$.
+\item $\{A_j\}_n=\{G_j\}_n=\{iZ_{k+1}Y_k,iY_{k+1}\}_{k=0}^{n-1}$.
+\end{enumerate}
+%
+The second results in only local two-qubit operations.
+The gradients are measured on the quantum device.
+At the end of each iteration we optimize $\mathbf{\theta}$ classically.
+Convergence of the algorithm is achieved when
+%
+\begin{equation}
+\vert\vert g\vert\vert=\left(\sum_i\left(\frac{\partial}{\partial\theta_i}\langle E\rangle\right)^2\right)^{1/2}\leq\epsilon.
+\end{equation}
+%
+
+\section*{Practical stuff}
+
+The reference state $|\psi_\mathrm{ref}\rangle$ is computed with the \textsc{Lucas} code.
+We can begin with the Li and Be atoms and if they work we can move to heavier atoms and/or simple molecules such as LiH and H$_2$O.
+
+\paragraph{Questions}
+
+\begin{enumerate}
+\item Perform \textsc{Lucas} calculation
+\item Read out the reference state
+\item Choose the operator pool
+\item Implement the state on Q50
+\begin{itemize}
+\item How is $|\psi_\mathrm{ref}\rangle$ mapped to Q50?
+\end{itemize}
+\item Measure the gradients on Q50
+\begin{itemize}
+\item How are the measurements performed?
+\end{itemize}
+\item Select largest gradient
+\item Readout
+\begin{itemize}
+\item How do we read the gradients from Q50?
+\end{itemize}
+\item Reoptimize classically
+\end{enumerate}
+
+\end{document}

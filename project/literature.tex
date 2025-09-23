@@ -1,0 +1,50 @@
+\documentclass[english,a4paper,12pt]{article}
+%\documentclass[english,journal=jctcce,manuscript=article,articletitle=true,layout=twocolumn]{achemso}
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2cm]{geometry}
+
+\usepackage{doi}
+\usepackage[version=4]{mhchem}
+\usepackage{multicol}
+
+\title{}
+\author{}
+\date{}
+
+\begin{document}
+\begin{multicols}{2}
+
+\section{Methods}
+
+\doi{10.1103/PRXQuantum.2.020310} qubit-ADAPT-VQE
+
+\doi{10.1021/acs.jctc.4c00070} describe the explicitly correlated TC method and explore the use of optimized basis sets.
+
+\doi{10.1021/acs.jpca.3c05882} incorporate an SCF step to ADAPT-VQE to optimize the orbitals.
+The SCF step can be performed without considerable increase in the number of two-qubit gates.
+
+\doi{0.1021/acs.jpclett.3c02536} utilize quantum information to optimize the active space and boost the convergence in CASSCF calculations.
+
+\doi{10.48550/arXiv.2405.15422} present a measurement-cost effective method for inclusion of dynamical correlation effects.
+
+\section{Experiments}
+
+\doi{10.1038/nature23879} perform calculations with six qubits and hundreds of Pauli terms on molecules up to \ce{BeH2}.
+
+\doi{10.1038/s41534-020-0259-3} perform VQE on \ce{H20} and without error mitigation they obtain accuracies comparable to chemical accuracy.
+
+\doi{10.1126/science.abb9811} perform twelve qubit quantum chemical calculations and simulate the isomerization of diazene.
+They variationally optimize the parametrized quantum circuit to prepare the HF state and perform error mitigation based on $N$-representability.
+
+\doi{0.1021/acs.jctc.3c01281} they implement qubit-ADAPT-VQE in fiurst quantization.
+They perform classical simulations to calculate \ce{H2} energy curves using five to seven qubits.
+They use an explicitly corralated basis with up to 128 basis funcitons and reach chemical accuracy.
+
+\section{Other}
+
+\doi{10.1039/d1cs01184g} discuss basis sets and boundary conditions for electronic structure calculations on quantum computers.
+They discuss that small, optimized numerical basis sets are appropriate.
+
+\end{multicols}
+\end{document}

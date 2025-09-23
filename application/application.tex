@@ -1,0 +1,81 @@
+\documentclass[english,a4paper,12pt]{article}
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2cm]{geometry}
+
+\title{Proposal: Electronic structure calculations on quantum computers
+}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Project name}
+
+Electronic structure calculations on quantum computers using numerical orbitals
+
+\section{Summary}
+
+\emph{CSC will use this abstract (with some other basic information, such as the size of the project) when publishing the selected proposals. Max 1000 characters.}
+
+The electronic structure of atoms, molecules, and materials is exponentially difficult to solve on classical computers. However, it is crucial for understanding their properties with applications in fields such as drug discovery and material design. Quantum computers have the potential to overcome the exponential scaling and reveal accurately the electronic structure of complex molecules, beyond the capacity of classical computers. Today's NISQ devices can be used to solve the problem for small molecules with hybrid HPC+QC algorithms. A crucial step in this implementation is the choice of basis in which to expand the one-particle states. We employ numerical basis sets resulting in small basis sets with high accuracy leading to a reduction in the number of qubits as compared to the use of Gaussian-type (GTO) or Slater-type (STO) basis sets.
+
+\section{Project scope and plan}
+
+\subsection{Key scientific/societal/technological contribution of the proposal}
+
+\emph{Outline the scientific/societal/technological importance of your project, how quantum computing (QC) or hybrid classical high-performance computing / quantum computing (HPC+QC) will help you achieve your goals and what the major expected outcomes are (max 2000 characters).}
+
+Solving the electronic structure of atoms, molecules, and materials is crucial for understanding their properties with applications in various fields such as drug discovery, and design of new materials and catalysts, making it a fundamental problem in chemistry. The exponential scaling of the electronic structure problem makes it impossible for classical computers to solve the problem for various complex, chemically interesting systems. Quantum computers can overcome this scaling since simulating quantum mechanical systems is efficient on a quantum device, and they thus have the potential to revolutionize the field. However, it is still early days in quantum computing and it is important for the computational chemistry community to get hands-on experience with real quantum devices early on. We want to gain experience on how to develop algorithms that, as the field develops rapidly, can be scaled up with the number of available qubits. First, we aim to map the electronic structure problem to qubits, and implement hybrid HPC+QC algorithms. We aim to use the implemented algorithms to solve the electronic structure problem for atoms and small molecules. We expect to attain valuable experience, as well as results of high quality compared to the scarce amount of results obtained from real quantum devices in the literature.
+
+\subsection{Justification for the importance of the scientific problem and the requested resources}
+
+\emph{Describe the proposed utilization of the resources and the main scientific/technical/educational advances you will achieve with the requested Q50 quantum computing allocation (max 2000 characters).}
+
+We aim to implement hybrid HPC+QC algorithms and the state-of-the-art is qubit-ADAPT VQE [2]. The HPC part performs many-dimensional optimization, while the QC part prepares the states and performs measurements. The number of CNOTs per iteration is 2(n-1). The authors of ref [2] make the conservative estimation n=4. The number of measurements per iteration is linear in the number of qubits. In an example calculation in ref [2], the number of iterations required in calculations on the LiH molecule was 175. The literature discusses how the basis set affects the performance of quantum algorithms. Optimized basis sets give more accurate results with significantly fewer qubits and more shallow circuits compared to calculations with various standard basis sets [1,3]. To our knowledge, calculations in the literature mainly employ globally defined Gaussian-type (GTO) and Slater-type (STO) basis sets [1]. We will employ small, optimized numerical basis sets that yield accurate results and need few qubits compared to larger GTO and STO basis sets. Finally, to the best of our knowledge, the calculations performed on real hardware in the literature have been performed with the number of qubits in the range of two to twenty. Together with the resource estimations for qubit-ADAPT, we estimate the QPU time for one LiH molecule to be around ten minutes. If we then take a set of light atoms and small test molecules, the QPU time is in total about one hour for one calculation on each system. The accuracy of the calculations can be assessed, as we choose systems that can be studied with classical computers. Taking unknown challenges into account, we make the conservative estimate for the total QPU time to three hours. We expect that together with high-quality basis sets and the number of qubits offered by VTT Q50, our results will be a step forward for electronic structure calculations on quantum computers.
+
+\subsection{References (max 5, max 2000 characters)}
+
+1 [J. Liu, Y. Fan, Z. Li and J. Yang, Chem. Soc. Rev., 2022, 51, 3263] discuss basis set requirements for near-term quatum devices.
+
+2 [H. L. Tang, V.O. Shkolnikov, G. S. Barron, H. R. Grimsley, N. J. Mayhall, E. Barnes, and S. E. Economou, PRX Quantum 2, 020310] describe the implementation of qubit-ADAPT VQE. 
+
+3 [W. Dobrautz, I. O. Sokolov, K. Liao, P. López Ríos, M. Rahm, A. Alavi and I. Tavernelli, J. Chem. Theory Comput. 2024, 20, 4146-4160] implement the TC method for quantum devices. They show how pre-optimized basis sets outperform traditional Gaussian basis sets in both accuracy, circuit depth, and number of qubits.
+
+4 [N. Rubin et al., Science 369, 1084-1089 (2020)] perform HF calculations on a real quantum device with up to twelve qubits on the diazene molecule and a hydrogen chain with tweleve atoms.
+
+5 [Åström H, MSc thesis (2022)] discuss in detail electronic structure calculations on quantum computers. The thesis recieved the junior Alfthan award for best MSc thesis by Finska kemistsamfundet, as well as the MSc thesis award in computational chemistry 2023 by the Finnish chemical society.
+
+%J. Phys. Chem. A 2024, 128, 2843-2856 implement an orbital optimization step to the VQE algorithm, which is then equivalent to CASSCF calculations on classical computers, thus allowing for the exact solution within the employed basis and space.
+
+\section{Resource estimates}
+
+\begin{itemize}
+
+\item VTT Q50 QPU hours: 3 
+
+\item LUMI CPU core-hours (in thousands of CPUh): 200
+
+\item LUMI GPU hours (in thousands of GPUh): 10
+
+\item LUMI Storage TiB hours (in thousands of TiBh): 40
+\end{itemize}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\end{document}
