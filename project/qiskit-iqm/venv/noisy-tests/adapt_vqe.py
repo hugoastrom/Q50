@@ -31,7 +31,7 @@ def commutator(a, b):
 
     psi = QuantumCircuit(nqubits)
     for op in appended_ops:
-        psi.append(op[0], [op[1]])
+        psi.append(op)
 
     comm = a @ b - b @ a
     estimator = Estimator()
@@ -72,13 +72,11 @@ if __name__ == "__main__":
         # Measure energy
         psi = QuantumCircuit()
         for op in appended_ops:
-            psi.append(op[0], op[1])
+            psi.append(op)
 
         estimator = Estimator()
-        hamiltonian = SparsePauliOperator([pauli_term[0] for pauli_term in q_hamiltoian], coeffs = [1.0 for pauli_term in q_hamiltonian])
-        energy = estimator.run(psi, hamiltonian).result().values#.real
-
-
+        energy = estimator.run(psi, q_hamiltonian).result().values#.real
+        print(energy)
 
         e_diff = e_last - energy
         
