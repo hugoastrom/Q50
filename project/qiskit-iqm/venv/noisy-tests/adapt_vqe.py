@@ -22,13 +22,16 @@ def run_qc(qc, shots):
 def commutator(a, b):
 
     psi = QuantumCircuit(nqubits)
+    #psi.h(0)
+
+    operator = a @ b - b @ a
+    
     for op in appended_ops:
-        psi.append(op)
+        operator = op.adjoint() @ operator @ op
 
-    comm = a @ b - b @ a
+    #print(operator)
     estimator = Estimator()
-
-    exp_val = estimator.run(psi, comm).result().values#.real
+    exp_val = estimator.run(psi, operator).result().values#.real
 
     print("Expectation value:", exp_val)
 
@@ -36,20 +39,21 @@ def commutator(a, b):
 
 if __name__ == "__main__":
 
-    #operator_pool = [[("X", 0)], [("Z", 1)]]
-    operator_pool = [SparsePauliOp(["YZ"], coeffs = [complex(0.0, 1.0)]), SparsePauliOp(["IY"], coeffs = [complex(0.0, 1.0)])]
+    operator_pool = [SparsePauliOp(["ZY"], coeffs = [complex(0.0, 1.0)]), SparsePauliOp(["YI"], coeffs = [complex(0.0, 1.0)])]
     #qubit_hamiltonian = mapped(fermion_hamiltonian) # From LUCAS/PySCF?
-    #q_hamiltonian = ("Z", 0)
-    q_hamiltonian = SparsePauliOp(["ZI"])
+    q_hamiltonian = SparsePauliOp(["IZ", "ZI"], coeffs = [1 / 2, 1 / 2])
     #ansatz = mapped(HF_state) # From LUCAS/PySCF?
-
 
     nqubits = 2
     shots = 1000
     max_iter = 10
 
-    iteration = 0
+    iteration = 1
     appended_ops = []
+
+    e_last = 0
+
+    thr = 1e-3
 
     while iteration < max_iter:
 
@@ -62,20 +66,29 @@ if __name__ == "__main__":
         appended_ops.append(operator_pool[comm_lst.index(min(comm_lst))])
 
         # Measure energy
-        psi = QuantumCircuit()
+        psi = QuantumCircuit(nqubits)
+        #psi.h(0)
+        operator = SparsePauliOp([nqubits * "I"])
         for op in appended_ops:
-            psi.append(op)
+            operator = op @ operator
 
+        operator = operator.adjoint() @ q_hamiltonian @ operator
         estimator = Estimator()
-        energy = estimator.run(psi, q_hamiltonian).result().values#.real
-        print(energy)
+        energy = estimator.run(psi, operator).result().values#.real
+        print(f"Energy at iteration {iteration} is:", energy[0])
+        print("Appended operator is:", appended_ops[-1])
 
-        e_diff = e_last - energy
 
-        # Energy difference < energy_threshold?
-        if e_diff < thr:
-            break
+        # Converged?
+        if iteration > 1:
+            e_diff = abs(energy - e_last)
+            if e_diff < thr:
+                print("Final energy:", energy[0])
+                break
 
         e_last = energy
+
+        iteration += 1
+
 
         # Classically optimize parameters
