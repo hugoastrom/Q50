@@ -40,7 +40,7 @@ def commutator(a, b, appended_ops, paramstring):
 
     return exp_val
 
-y
+
 def energy(paramstring):
 
     psi = QuantumCircuit(nqubits)
