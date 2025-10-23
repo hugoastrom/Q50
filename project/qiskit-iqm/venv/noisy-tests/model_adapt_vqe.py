@@ -34,7 +34,6 @@ def commutator(a, b, appended_ops, paramstring):
     exp_val = estimator.run(psi, operator).result().values
 
     exp_val = 1.0j * exp_val
-    print("\nOperator:", b, "Commutator:", exp_val, "\n")
 
     return exp_val
 
@@ -52,20 +51,17 @@ def energy(paramstring):
 
     return e
 
-def optimize_params(paramstring):
+def optimize_params(paramstring, optimizer = "nelder-mead"):
 
     theta = paramstring
-    res = minimize(energy, theta, method = "nelder-mead", options={'xatol': 1e-8, 'disp': True})
+    res = minimize(energy, theta, method = optimizer, options={'xatol': 1e-8, 'disp': True})
     
     return res.x
 
 if __name__ == "__main__":
 
-    #operator_pool = [SparsePauliOp(["ZY"], coeffs = [1.0j]), SparsePauliOp(["YI"], coeffs = [1.0j])]
     operator_pool = [SparsePauliOp(["ZY"]), SparsePauliOp(["YI"])]
-    #qubit_hamiltonian = mapped(fermion_hamiltonian) # From LUCAS/PySCF?
     q_hamiltonian = SparsePauliOp(["IZ", "ZI"], coeffs = [1 / 2, 1 / 2])
-    #ansatz = mapped(HF_state) # From LUCAS/PySCF?
 
     nqubits = 2
     shots = 1000
@@ -74,6 +70,8 @@ if __name__ == "__main__":
     iteration = 1
     appended_ops = [SparsePauliOp(["I" * nqubits])]
     paramstring = [0.0]
+    e = energy(paramstring)[0]
+    print("Initial energy:", e)
 
     e_last = 0
 
@@ -108,7 +106,7 @@ if __name__ == "__main__":
         print("\n")
 
         # Converged?
-        #comm_norm = np.sqrt(sum([comm ** 2 for comm in comm_lst]))
+        #comm_norm = np.sqrt(sum([comm * np.conjugate(comm) for comm in comm_lst]))
         if iteration > 1:
             e_diff = e - e_last
             print("Ediff =", e_diff)
