@@ -49,7 +49,7 @@ if __name__ == "__main__":
     #h2e = mx.get_h2eff()
 
     # Create qubit-adapt-VQE object
-    vqe = QubitAdaptVQE(ecore, h1e, h2e, "cobyla")
+    vqe = QubitAdaptVQE(ecore, h1e, h2e, optimizer="cobyla")
 
     # Data for qubit-adapt-VQE
     vqe.set_backend(IQMFakeAdonis())
