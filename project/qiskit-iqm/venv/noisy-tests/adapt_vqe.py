@@ -4,7 +4,7 @@ from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 from qiskit import QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit.library import PauliEvolutionGate
 
-from qiskit.primitives import Estimator
+from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV2
 from qiskit.quantum_info import SparsePauliOp
 
 import numpy as np
@@ -34,21 +34,59 @@ class QubitAdaptVQE():
        self.operator_pool = self.generate_pool()
        self.appended_ops = [SparsePauliOp(["I" * self.nqubits])]
        self.paramstring = [0.0]
-       
+
+    def estimator_dict(self, estimator):
+        d = {"estimator": Estimator(),
+             "backend_estimator": BackendEstimatorV2(backend=self.backend),
+             "statevector_estimator": StatevectorEstimator()
+             }
+        return d[estimator]
+
     def set_backend(self, backend):
         self.backend = backend
 
     def run_qc(self, qc: QuantumCircuit, shots: int):
-        if backend == None:
-            raise ValueError("Backend not set!")
         
-        backend = self.backend
-        trans_c = transpile(qc, backend=backend)
+        trans_c = transpile(qc, backend=self.backend)
         job = backend.run(trans_c, shots=shots)
         result = job.result()
         exp_result = job.result()._get_experiment(qc)
 
         return result
+
+    def calc_exp_val(self, qc: QuantumCircuit, op: SparsePauliOp):
+
+        estimator = self.estimator
+        if isinstance(estimator, Estimator):
+            res = estimator.run(qc, op).result().values
+        elif isinstance(estimator, StatevectorEstimator):
+            res = estimator.run([(qc, op)]).result()[0].data.evs
+        elif isinstance(estimator, BackendEstimatorV2):
+            print(qc.num_qubits)
+            qc = transpile(qc, backend=self.backend)
+            print(qc.num_qubits)
+            res = estimator.run([(qc, op)]).result()[0].data.evs
+        else:
+            raise ValueError("Undeifined estimator")
+
+        return res
+
+    def set_estimator(self, estimator):
+        """
+        Set the classical estimator
+            options:
+            estimator
+            backend_estimator
+            statevector_estimator
+        """
+        try:
+            self.estimator = self.estimator_dict(estimator)
+        except KeyError:
+            print("Estimator not implemented")
+        if estimator == "backend_estimator" and self.backend == None:
+            raise ValueError("Set backend!")
+
+        return
 
     def commutator(self, a: SparsePauliOp, b: SparsePauliOp):
         """
@@ -65,13 +103,11 @@ class QubitAdaptVQE():
         psi.compose(evolution, inplace=True)
 
         operator = a @ b - b @ a
+        # The derivative of the energy with respect to parameters yields a complex phase
+        operator = 1.0j * operator.chop().simplify()
 
         # Measure value
-        estimator = Estimator()
-        exp_val = estimator.run(psi, operator).result().values
-
-        # The derivative of the energy with resoect to parameter i gets a complex phase
-        exp_val = 1.0j * exp_val
+        exp_val = self.calc_exp_val(psi, operator)
 
         return exp_val
 
@@ -81,13 +117,11 @@ class QubitAdaptVQE():
         Measure energy
         """
         psi = self.state_prep()
-
         paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = params)
         evolution = PauliEvolutionGate(paulistring, time=1)
         psi.compose(evolution, inplace=True)
 
-        estimator = Estimator()
-        e = estimator.run(psi, self.hamiltonian).result().values[0]
+        e = self.calc_exp_val(psi, self.hamiltonian)
 
         return e
 
@@ -126,7 +160,7 @@ class QubitAdaptVQE():
         """
         Initialize quantum circuit
         """
-        
+
         psi = QuantumCircuit(self.nqubits)
 
         return psi
@@ -198,7 +232,7 @@ class QubitAdaptVQE():
             raise ValueError("Unsupported mapping.")
         d_list = [cp.adjoint() for cp in c_list]
         return c_list, d_list
-    
+
     def build_hamiltonian(self) -> SparsePauliOp:
         """
         Map one- and two-electron integrals to quantum operators
@@ -226,7 +260,7 @@ class QubitAdaptVQE():
                     + C[ncas + r] @ D[ncas + p]
                 )
             Exc.append(Excp)
- 
+
         # Low-rank decomposition of the Hamiltonian
         Lop, ng = self.cholesky(1e-6)
         t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
@@ -251,14 +285,12 @@ class QubitAdaptVQE():
 
     def minimize_energy(self, maxiter):
 
-        # Build Hamiltonian and generate operator pool
-        
         # Data for adapt-VQE iterations
         iteration = 1
         e_last = 0
         thr = 1e-6
 
-        
+
         while iteration <= maxiter:
 
             # List for commutators

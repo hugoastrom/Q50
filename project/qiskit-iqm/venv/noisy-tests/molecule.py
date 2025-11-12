@@ -10,22 +10,22 @@ from pyscf.tools import dump_mat
 if __name__ == "__main__":
 
     # Create molecule object
-    #a = 1.5
-    a = 2.0
+    a = 1.5
     mol = gto.Mole()
     mol.build(
         verbose = 0,
-        atom = [["H", (0, 0, 0)], ["H", (0, 0, a)]],
-        basis = "cc-pVDZ",
+        atom = [["Li", (0, 0, 0)], ["H", (0, 0, a)]],
+        basis = "sto-3g",
         spin = 0,
         charge = 0,
-        symmetry = "Dooh"
+        #symmetry = "Dooh"
     )
 
     # Run classical SCF to obtain ansatz
     mf = scf.RHF(mol)
     mf.scf()
-    print("HF energy:", mf.energy_tot())
+    e_hf = mf.energy_tot()
+    print("HF energy:", e_hf)
 
     # Orbitals
     #dump_mat.dump_mo(mol, mf.mo_coeff)
@@ -48,14 +48,16 @@ if __name__ == "__main__":
     h2e = ao2mo.restore(1, mx.get_h2eff(), mx.ncas)
     #h2e = mx.get_h2eff()
 
-    # Create qubit-adapt-VQE object
-    vqe = QubitAdaptVQE(ecore, h1e, h2e, optimizer="cobyla")
+    for estimator in ("estimator", "statevector_estimator", "backend_estimator"):
+        # Create qubit-adapt-VQE object
+        vqe = QubitAdaptVQE(ecore, h1e, h2e, optimizer="cobyla")
 
-    # Data for qubit-adapt-VQE
-    vqe.set_backend(IQMFakeAdonis())
+        # Data for qubit-adapt-VQE
+        vqe.set_backend(IQMFakeAdonis())
+        vqe.set_estimator(estimator)
 
-    # Prepare initial state and run
-    print("Initial energy:", vqe.energy([0.0]))
-
-    # adapt-VQE iterations
-    vqe.minimize_energy(maxiter = 100)
+        # Prepare initial state and run
+        print("Initial energy:", vqe.energy([0.0]))
+        
+        # adapt-VQE iterations
+        vqe.minimize_energy(maxiter = 100)
