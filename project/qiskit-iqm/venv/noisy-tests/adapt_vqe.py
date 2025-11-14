@@ -14,15 +14,15 @@ from scipy.optimize import minimize
 
 class QubitAdaptVQE():
 
-    def __init__(self, ecore, h1e, h2e, optimizer):
+    def __init__(self, dm1, h1e, h2e, optimizer, ecore=0.0):
        """
        Args:
            ecore (float): Core Hamiltonian
-           h1e (np.ndarray): 1-electorn integrals
+           h1e (np.ndarray): 1-electron integrals
            h2e (np.ndarray): 2-electron integrals
            optimizer (string): Classical SciPy optimizer algorithm
        """
-
+       self.dm1 = dm1
        self.ecore = ecore
        self.h1e = h1e
        self.h2e = h2e
@@ -55,26 +55,31 @@ class QubitAdaptVQE():
         return result
 
     def calc_exp_val(self, qc: QuantumCircuit, op: SparsePauliOp):
-
+        """
+        Calculate expectation value of op using qc
+        args:
+            qc (QuntumCircuit): The state
+            op (SparsePauliOp): The observable
+        """
         estimator = self.estimator
         if isinstance(estimator, Estimator):
             res = estimator.run(qc, op).result().values
         elif isinstance(estimator, StatevectorEstimator):
             res = estimator.run([(qc, op)]).result()[0].data.evs
         elif isinstance(estimator, BackendEstimatorV2):
-            print(qc.num_qubits)
+            print(qc.draw())
             qc = transpile(qc, backend=self.backend)
-            print(qc.num_qubits)
+            print(qc.draw())
             res = estimator.run([(qc, op)]).result()[0].data.evs
         else:
-            raise ValueError("Undeifined estimator")
+            raise ValueError("Undefined estimator")
 
         return res
 
     def set_estimator(self, estimator):
         """
         Set the classical estimator
-            options:
+        options:
             estimator
             backend_estimator
             statevector_estimator
@@ -160,8 +165,9 @@ class QubitAdaptVQE():
         """
         Initialize quantum circuit
         """
-
         psi = QuantumCircuit(self.nqubits)
+        psi.x(0)
+        psi.x(1)
 
         return psi
 
@@ -170,9 +176,9 @@ class QubitAdaptVQE():
         Decompose two-body term in Hamiltonian to lower rank
         args:
             V (numpy ndarray): Two-electron integrals
-            eps (float): Error resulting from decomposition
+            eps (float): Error threshold
         returns:
-            Numpy array representing the low-rank decomposition of the Hamiltonian two-body terms            
+            Numpy array representing the low-rank decomposition of the Hamiltonian two-body term
         """
 
         # see https://arxiv.org/pdf/1711.02242.pdf section B2
@@ -242,7 +248,7 @@ class QubitAdaptVQE():
             h2e (numpy ndarray): two-electron integrals
         
         returns:
-            Hamiltonian in fermionic operators
+            Hamiltonian (SparsePauliOp)
         """
 
         # Get number of orbitals
@@ -261,35 +267,88 @@ class QubitAdaptVQE():
                 )
             Exc.append(Excp)
 
-        # Low-rank decomposition of the Hamiltonian
-        Lop, ng = self.cholesky(1e-6)
-        t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
-
-        # Core term
-        H = self.ecore * self.identity(2 * ncas)
-
-        # One-body term
-        for p in range(ncas):
-            for r in range(p, ncas):
-                H += t1e[p, r] * Exc[p][r - p]
-
-        # Two-body term
-        for g in range(ng):
-            Lg = 0 * self.identity(2 * ncas)
+        if (use_cholesky):
+            # Low-rank decomposition of the Hamiltonian
+            Lop, ng = self.cholesky(1e-6)
+            t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
+            
+            # Core term
+            H = self.ecore * self.identity(2 * ncas)
+            
+            # One-body term
             for p in range(ncas):
                 for r in range(p, ncas):
-                    Lg += Lop[p, r, g] * Exc[p][r - p]
-            H += 0.5 * Lg @ Lg
+                    H += t1e[p, r] * Exc[p][r - p]
+                    
+            # Two-body term
+            for g in range(ng):
+                Lg = 0 * self.identity(2 * ncas)
+                for p in range(ncas):
+                    for r in range(p, ncas):
+                        Lg += Lop[p, r, g] * Exc[p][r - p]
+                H += 0.5 * Lg @ Lg
+
+        else:
+            for p in range(ncas):
+                for q in range(p, ncas):
+                    H += self.h1e[p, q] * Exc[p][q - p]
+            for p in range():
+                for q in range():
+                    for r in range():
+                        for s in range():
 
         return H.chop().simplify()
 
     def minimize_energy(self, maxiter):
 
+        ncas, _ = self.h1e.shape
+        Lop, ng = self.cholesky(1e-6)
+        t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
+
+        # Core term
+        H = self.ecore * np.identity(ncas)#2 * ncas)
+        
+        # One-body term
+        for p in range(ncas):
+            H[p, p] += t1e[p, p]
+            #H[p + ncas, p + ncas] += t1e[p, p]
+            for r in range(p + 1, ncas):
+                H[p, r] += t1e[p, r]
+                H[r, p] += t1e[r, p]
+                #H[p + ncas, r + ncas] += t1e[p, r]
+                #H[r + ncas, p + ncas] += t1e[r, p]
+
+        # Two-body term
+        for g in range(ng):
+            Lg = np.zeros((ncas, ncas))#2 * ncas, 2 * ncas))
+            for p in range(ncas):
+                Lg[p, p] += Lop[p, p, g]
+                #Lg[p + ncas, p + ncas] += Lop[p, p, g]
+                for r in range(p + 1, ncas):
+                    Lg[p, r] += Lop[p, r, g]
+                    Lg[r, p] += Lop[r, p, g]
+                    #Lg[p + ncas, r + ncas] += Lop[p, r, g]
+                    #Lg[r + ncas, p + ncas] += Lop[r, p, g]
+            H += 0.5 * Lg @ Lg
+
+        V = np.einsum("pqx,rsx->pr", Lop, Lop)
+        print("V'", V)
+        E = np.einsum("pq,qp", t1e, self.dm1) + 0.5 * np.einsum("pq,qp", V, self.dm1)
+        print("Ehf = %.12f" % E)
+        #E = einsum('pq,qp', hcore, 1pdm) + einsum('pqrs,pqrs', eri, 2pdm) / 2
+        print("H1e", self.h1e)
+        print("T1e", t1e)
+        print("H2e", self.h2e)
+        print("Lop", Lop)
+        print("P", self.dm1)
+        dm2 = (np.einsum('ij,kl->ijkl', self.dm1, self.dm1) - np.einsum('ij,kl->iklj', self.dm1, self.dm1)/2)
+        print("D", dm2)
+
+
         # Data for adapt-VQE iterations
         iteration = 1
         e_last = 0
         thr = 1e-6
-
 
         while iteration <= maxiter:
 
