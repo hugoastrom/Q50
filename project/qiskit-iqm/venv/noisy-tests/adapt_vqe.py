@@ -14,7 +14,7 @@ from scipy.optimize import minimize
 
 class QubitAdaptVQE():
 
-    def __init__(self, dm1, h1e, h2e, optimizer, ecore=0.0):
+    def __init__(self, dm1, h1e, h2e, nel, optimizer, ecore=0.0):
        """
        Args:
            ecore (float): Core Hamiltonian
@@ -29,8 +29,13 @@ class QubitAdaptVQE():
        self.optimizer = optimizer
        self.backend = None
 
+       self.use_cholesky = False
+       self.nel = nel
+       print("\nNumber of electrons = %i" % self.nel)
+
        self.hamiltonian = self.build_hamiltonian()
        self.nqubits = self.hamiltonian.num_qubits
+       print("Number of qubits    = %i\n" %self.nqubits)
        self.operator_pool = self.generate_pool()
        self.appended_ops = [SparsePauliOp(["I" * self.nqubits])]
        self.paramstring = [0.0]
@@ -130,7 +135,7 @@ class QubitAdaptVQE():
 
         return e
 
-    def optimize_params(self, args={}):
+    def optimize_params(self, args={"disp": True}):
         """
         Classically optimize parameter vector
         args:
@@ -140,7 +145,7 @@ class QubitAdaptVQE():
             Optimized parameter vector
         """
 
-        res = minimize(energy, self.paramstring, method = self.optimizer, options=args)
+        res = minimize(self.energy, self.paramstring, method = self.optimizer, options=args)
 
         return res.x
 
@@ -166,8 +171,8 @@ class QubitAdaptVQE():
         Initialize quantum circuit
         """
         psi = QuantumCircuit(self.nqubits)
-        psi.x(0)
-        psi.x(1)
+        for iel in range(self.nel):
+            psi.x(self.nqubits - (iel + 1))
 
         return psi
 
@@ -267,14 +272,15 @@ class QubitAdaptVQE():
                 )
             Exc.append(Excp)
 
-        if (use_cholesky):
+        # Core term
+        H = self.ecore * self.identity(2 * ncas)
+
+        t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
+
+        if (self.use_cholesky):
             # Low-rank decomposition of the Hamiltonian
             Lop, ng = self.cholesky(1e-6)
-            t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
-            
-            # Core term
-            H = self.ecore * self.identity(2 * ncas)
-            
+                        
             # One-body term
             for p in range(ncas):
                 for r in range(p, ncas):
@@ -291,58 +297,59 @@ class QubitAdaptVQE():
         else:
             for p in range(ncas):
                 for q in range(p, ncas):
-                    H += self.h1e[p, q] * Exc[p][q - p]
-            for p in range():
-                for q in range():
-                    for r in range():
-                        for s in range():
+                    H += t1e[p, q] * Exc[p][q - p]
+            for p in range(ncas):
+                for q in range(p, ncas):
+                    for r in range(ncas):
+                        for s in range(r, ncas):
+                            H += 0.5 * self.h2e[p, q, r, s] * Exc[p][q - p] @ Exc[r][s - r]
 
         return H.chop().simplify()
 
     def minimize_energy(self, maxiter):
 
-        ncas, _ = self.h1e.shape
-        Lop, ng = self.cholesky(1e-6)
-        t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
+        #ncas, _ = self.h1e.shape
+        #Lop, ng = self.cholesky(1e-6)
+        #t1e = self.h1e - 0.5 * np.einsum("pxxr->pr", self.h2e)
 
         # Core term
-        H = self.ecore * np.identity(ncas)#2 * ncas)
+        #H = self.ecore * np.identity(ncas)#2 * ncas)
         
         # One-body term
-        for p in range(ncas):
-            H[p, p] += t1e[p, p]
-            #H[p + ncas, p + ncas] += t1e[p, p]
-            for r in range(p + 1, ncas):
-                H[p, r] += t1e[p, r]
-                H[r, p] += t1e[r, p]
+        #for p in range(ncas):
+        #    H[p, p] += t1e[p, p]
+        #    #H[p + ncas, p + ncas] += t1e[p, p]
+        #    for r in range(p + 1, ncas):
+        #        H[p, r] += t1e[p, r]
+        #        H[r, p] += t1e[r, p]
                 #H[p + ncas, r + ncas] += t1e[p, r]
                 #H[r + ncas, p + ncas] += t1e[r, p]
 
         # Two-body term
-        for g in range(ng):
-            Lg = np.zeros((ncas, ncas))#2 * ncas, 2 * ncas))
-            for p in range(ncas):
-                Lg[p, p] += Lop[p, p, g]
-                #Lg[p + ncas, p + ncas] += Lop[p, p, g]
-                for r in range(p + 1, ncas):
-                    Lg[p, r] += Lop[p, r, g]
-                    Lg[r, p] += Lop[r, p, g]
+        #for g in range(ng):
+        #    Lg = np.zeros((ncas, ncas))#2 * ncas, 2 * ncas))
+        #    for p in range(ncas):
+        #        Lg[p, p] += Lop[p, p, g]
+        #        #Lg[p + ncas, p + ncas] += Lop[p, p, g]
+        #        for r in range(p + 1, ncas):
+        #            Lg[p, r] += Lop[p, r, g]
+        #            Lg[r, p] += Lop[r, p, g]
                     #Lg[p + ncas, r + ncas] += Lop[p, r, g]
                     #Lg[r + ncas, p + ncas] += Lop[r, p, g]
-            H += 0.5 * Lg @ Lg
+        #    H += 0.5 * Lg @ Lg
 
-        V = np.einsum("pqx,rsx->pr", Lop, Lop)
-        print("V'", V)
-        E = np.einsum("pq,qp", t1e, self.dm1) + 0.5 * np.einsum("pq,qp", V, self.dm1)
-        print("Ehf = %.12f" % E)
+        #V = np.einsum("pqx,rsx->pr", Lop, Lop)
+        #print("V'", V)
+        #E = np.einsum("pq,qp", t1e, self.dm1) + 0.5 * np.einsum("pq,qp", V, self.dm1)
+        #print("Ehf = %.12f" % E)
         #E = einsum('pq,qp', hcore, 1pdm) + einsum('pqrs,pqrs', eri, 2pdm) / 2
-        print("H1e", self.h1e)
-        print("T1e", t1e)
-        print("H2e", self.h2e)
-        print("Lop", Lop)
-        print("P", self.dm1)
-        dm2 = (np.einsum('ij,kl->ijkl', self.dm1, self.dm1) - np.einsum('ij,kl->iklj', self.dm1, self.dm1)/2)
-        print("D", dm2)
+        #print("H1e", self.h1e)
+        #print("T1e", t1e)
+        #print("H2e", self.h2e)
+        #print("Lop", Lop)
+        #print("P", self.dm1)
+        #dm2 = (np.einsum('ij,kl->ijkl', self.dm1, self.dm1) - np.einsum('ij,kl->iklj', self.dm1, self.dm1)/2)
+        #print("D", dm2)
 
 
         # Data for adapt-VQE iterations
@@ -365,7 +372,7 @@ class QubitAdaptVQE():
 
             # Calculate norm of parameter vector
             #param_norm_last = np.sqrt(sum([theta ** 2 for theta in self.paramstring]))
-            #self.paramstring = list(optimize_params(self.paramstring))
+            self.paramstring = list(self.optimize_params())
             #param_norm = np.sqrt(sum([theta ** 2 for theta in self.paramstring]))
 
             # Measure energy

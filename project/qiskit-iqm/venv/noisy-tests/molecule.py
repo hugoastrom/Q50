@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
     mol = gto.M(atom='He 0 0 0', basis='sto-3g')
     conv, e, mo_e, mo, mo_occ = scf.hf.kernel(scf.hf.SCF(mol), dm0=np.eye(mol.nao_nr()))
-    uhf_mol = scf.UHF(mol)
+    #uhf_mol = scf.UHF(mol)
     #uhf_mol.kernel()
     print('conv = %s, E(HF) = %.12f' % (conv, e))
 
@@ -64,9 +64,9 @@ if __name__ == "__main__":
     E = np.einsum('pq,qp', hcore, dm1) + np.einsum('pqrs,pqrs', eri, dm2) / 2
     print("             E(HF) = %.12f" % (E))
 
-    for estimator in ["estimator"]:#, "statevector_estimator", "backend_estimator"):
+    for estimator in ["statevector_estimator"]:#, "estimator", "backend_estimator"):
         # Create qubit-adapt-VQE object
-        vqe = QubitAdaptVQE(dm1, hcore, eri, optimizer="cobyla")
+        vqe = QubitAdaptVQE(dm1, hcore, eri, nel = mol.nelectron, optimizer="cobyla")
 
         # Data for qubit-adapt-VQE
         vqe.set_backend(IQMFakeAdonis())
