@@ -10,70 +10,31 @@ from pyscf.tools import dump_mat
 if __name__ == "__main__":
 
     # Create molecule object
-    #a = 1.5
-    #mol = gto.Mole()
-    #mol.build(
-    #    verbose = 0,
-    #    atom = [["H", (0, 0, 0)], ["H", (0, 0, a)]],
-    #    basis = "sto-3g",
-    #    spin = 0,
-    #    charge = 0,
-        #symmetry = "Dooh"
-    #)
+    mol = gto.Mole()
+    mol.atom = "He 0 0 0"
+    mol.basis = "sto-3g"
+    mol.spin = 0
+    mol.build()
 
-    # Run classical SCF to obtain ansatz
-    #mf = scf.RHF(mol)
-    #mf.scf()
-    #e_hf = mf.energy_tot()
-    #print("HF energy:", e_hf)
+    # Run RHF calculation
+    mf = scf.RHF(mol).run()
+    print("RHF energy = %.12f" %mf.e_tot)
 
-    # Orbitals
-    #dump_mat.dump_mo(mol, mf.mo_coeff)
-    
-    # Define active space
-    #active_space = range(mol.nelectron // 2 - 1, mol.nelectron // 2 + 1)
-    #active_space = range(4)
-    #active_space = range(10)
+    # One- and two-electron Hamiltonians in MO basis
+    h1 = mf.mo_coeff.T @ scf.hf.get_hcore(mol) @ mf.mo_coeff
+    eri_ao = mol.intor("int2e")                     # AO integrals
+    eri_mo = ao2mo.incore.full(eri_ao, mf.mo_coeff) # MO integrals in 8-fold symmetry
+    eri_mo = ao2mo.restore(1, eri_mo, mol.nao)      # Restore full 4-index tensor (ij|kl)
 
+    # Create qubit-adapt-VQE object
+    occs = mf.mo_occ
 
-    # Get 1 and 2 electron Hamiltonians
-    #hcore = mf.get_hcore()
-    #ecore = 0.0
-    #h2e = mol.intor("int2e")#, aosym="s8")
-    #E1 = mf.kernel()
-    #mx = mcscf.CASCI(mf, ncas=len(active_space), nelecas=(1, 1))
-    #mo = mx.sort_mo(active_space, base=0)
-    #E2 = mx.kernel(mo)[:2]
-    #h1e, ecore = mx.get_h1eff()
-    #h2e = ao2mo.restore(1, mx.get_h2eff(), mx.ncas)
+    vqe = QubitAdaptVQE(occs, h1, eri_mo, optimizer="cobyla")
 
-    mol = gto.M(atom='He 0 0 0', basis='sto-3g')
-    conv, e, mo_e, mo, mo_occ = scf.hf.kernel(scf.hf.SCF(mol), dm0=np.eye(mol.nao_nr()))
-    #uhf_mol = scf.UHF(mol)
-    #uhf_mol.kernel()
-    print('conv = %s, E(HF) = %.12f' % (conv, e))
+    # Data for qubit-adapt-VQE
+    estimator = "statevector_estimator"
+    vqe.set_backend(IQMFakeAdonis())
+    vqe.set_estimator(estimator)
 
-    dm1 = scf.hf.make_rdm1(mo, mo_occ)
-    dm2 = scf.hf.make_rdm2(mo, mo_occ)
-    hcore = scf.hf.get_hcore(mol)
-    #dm1 = sum(uhf_mol.make_rdm1())
-    #dm2 = (np.einsum('ij,kl->ijkl', dm1, dm1) - np.einsum('ij,kl->iklj', dm1, dm1)/2)
-    #dm2 = sum(uhf_mol.make_rdm2())
-    #hcore = uhf_mol.get_hcore()
-    eri = mol.intor("int2e")
-    E = np.einsum('pq,qp', hcore, dm1) + np.einsum('pqrs,pqrs', eri, dm2) / 2
-    print("             E(HF) = %.12f" % (E))
-
-    for estimator in ["statevector_estimator"]:#, "estimator", "backend_estimator"):
-        # Create qubit-adapt-VQE object
-        vqe = QubitAdaptVQE(dm1, hcore, eri, nel = mol.nelectron, optimizer="cobyla")
-
-        # Data for qubit-adapt-VQE
-        vqe.set_backend(IQMFakeAdonis())
-        vqe.set_estimator(estimator)
-
-        # Prepare initial state and run
-        print("Initial energy:", vqe.energy([0.0]))
-        
-        # adapt-VQE iterations
-        vqe.minimize_energy(maxiter = 100)
+    # Run qubit-adapt-VQE
+    vqe.minimize_energy(maxiter = 100)
