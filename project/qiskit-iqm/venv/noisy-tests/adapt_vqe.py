@@ -44,13 +44,12 @@ class QubitAdaptVQE():
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
-        print(self.hamiltonian)
         self.nqubits = self.hamiltonian.num_qubits
         print("Number of qubits = %i\n" %self.nqubits)
 
         # Construct operator pool and parameters
         self.operator_pool = self.generate_pool()
-        self.appended_ops = [SparsePauliOp(["I" * self.nqubits])]
+        self.appended_ops = [SparsePauliOp(["I" * self.nqubits], coeffs = [0.0])]
         self.paramstring = [0.0]
 
     def estimator_dict(self, estimator):
@@ -119,7 +118,8 @@ class QubitAdaptVQE():
 
         # Prepare quantum state
         psi = self.state_prep()
-        paulistring = sum(self.appended_ops)
+        paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = self.paramstring)
+        #paulistring = sum(self.appended_ops)
         evolution = PauliEvolutionGate(paulistring, time=1)
         psi.compose(evolution, inplace=True)
 
@@ -155,7 +155,7 @@ class QubitAdaptVQE():
             Optimized parameter vector
         """
 
-        res = minimize(self.energy, self.paramstring, method = self.optimizer, options=args)
+        res = minimize(self.energy, self.paramstring, method = self.optimizer, tol=1e-6, options=args)
 
         return res.x
 
@@ -182,7 +182,8 @@ class QubitAdaptVQE():
         """
         psi = QuantumCircuit(self.nqubits)
         for iocc in self.ansatz:
-            psi.x(self.nqubits - iocc - 1)
+            #psi.x(self.nqubits - iocc - 1)
+            psi.x(iocc)
 
         return psi
 
@@ -247,7 +248,7 @@ class QubitAdaptVQE():
             for p in range(n):
                 z_op =  "Z" * p
                 id_op = "I" * (n - p - 1)
-                cp = SparsePauliOp.from_list([(id_op + "X" + z_op, 0.5), (id_op + "Y" + z_op, 0.5j)])
+                cp = SparsePauliOp.from_list([(id_op + "X" + z_op, 0.5), (id_op + "Y" + z_op, -0.5j)])
                 c_list.append(cp)
         else:
             raise ValueError("Unsupported mapping.")
@@ -341,12 +342,13 @@ class QubitAdaptVQE():
                 comm_lst.append(self.commutator(self.hamiltonian, operator))
 
             # Find operator with largest energy decrease and apply
-            self.appended_ops.append(self.operator_pool[comm_lst.index(min(comm_lst))])
+            min_grad = min(comm_lst)
+            self.appended_ops.append(self.operator_pool[comm_lst.index(min_grad)])
             self.paramstring.append(0.0)
-            print("Appended operator is:", self.appended_ops[-1].paulis[0])
+            print("Appended operator is:", self.appended_ops[-1].paulis[0], "with gradient:", min_grad)
 
             # Calculate norm of parameter vector
-            print("\nOptimizing parameters ...")
+            print("\nOptimizing parameters...")
             self.paramstring = list(self.optimize_params())
 
             # Measure energy
@@ -360,8 +362,8 @@ class QubitAdaptVQE():
             if iteration > 1:
                 grad_norm = np.sqrt(sum([comm ** 2 for comm in comm_lst]))
                 print("Gradient norm = %.10f" %grad_norm)
-                #if grad_norm < thr:
-                if abs(e_diff) < thr:
+                if grad_norm < thr:
+                #if abs(e_diff) < thr:
                     print("Final energy:", self.energy(self.paramstring))
                     break
             print("\n")
