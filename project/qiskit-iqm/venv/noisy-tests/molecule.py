@@ -4,22 +4,24 @@ from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 import numpy as np
 import cmath
 
-from pyscf import ao2mo, gto, mcscf, scf, lo
-from pyscf.tools import dump_mat
+from pyscf import ao2mo, gto, mcscf, scf, fci
 
 if __name__ == "__main__":
 
     # Create molecule object
     mol = gto.Mole()
-    mol.atom = "He 0 0 0"
+    mol.atom = "H 0 0 0; H 0 0 2.0;"
     mol.basis = "sto-3g"
     mol.spin = 0
     mol.build()
 
     # Run RHF calculation
     mf = scf.RHF(mol).run()
-    print("RHF energy = %.12f" %mf.e_tot)
-
+    ehf = mf.e_tot
+    print("RHF energy = %.12f" %ehf)
+    e_elec = mf.energy_elec()[0]
+    hnuc = ehf - e_elec
+    
     # One- and two-electron Hamiltonians in MO basis
     h1 = mf.mo_coeff.T @ scf.hf.get_hcore(mol) @ mf.mo_coeff
     eri_ao = mol.intor("int2e")                     # AO integrals
@@ -28,8 +30,7 @@ if __name__ == "__main__":
 
     # Create qubit-adapt-VQE object
     occs = mf.mo_occ
-
-    vqe = QubitAdaptVQE(occs, h1, eri_mo, optimizer="cobyla")
+    vqe = QubitAdaptVQE(occs, hnuc, h1, eri_mo, optimizer="cobyla")
 
     # Data for qubit-adapt-VQE
     estimator = "statevector_estimator"
@@ -37,4 +38,11 @@ if __name__ == "__main__":
     vqe.set_estimator(estimator)
 
     # Run qubit-adapt-VQE
-    vqe.minimize_energy(maxiter = 100)
+    vqe.minimize_energy(maxiter = 50)
+
+    # Print reference FCI energy
+    cisolver = fci.FCI(mf)
+    efci, fcivec = cisolver.kernel()
+
+    print('HF energy:            %.12f' %ehf)
+    print('FCI reference energy: %.12f' %efci)
