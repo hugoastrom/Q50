@@ -16,7 +16,7 @@ from scipy.optimize import minimize
 
 class QubitAdaptVQE():
     
-    def __init__(self, mo_occs, h1e, h2e, optimizer):
+    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer):
         """
         Args:
             mo_occs (list): MO occupations
@@ -34,6 +34,7 @@ class QubitAdaptVQE():
                 self.ansatz.append(iocc)
                 if occ > 1:
                     self.ansatz.append(iocc + norb)
+        self.hnuc = hnuc
         self.h1e = h1e
         self.h2e = h2e
         self.optimizer = optimizer
@@ -49,7 +50,7 @@ class QubitAdaptVQE():
 
         # Construct operator pool and parameters
         self.operator_pool = self.generate_pool()
-        self.appended_ops = [SparsePauliOp(["I" * self.nqubits], coeffs = [0.0])]
+        self.appended_ops = [SparsePauliOp(["I" * self.nqubits], coeffs = [np.pi / 2.0])]
         self.paramstring = [0.0]
 
     def estimator_dict(self, estimator):
@@ -119,14 +120,12 @@ class QubitAdaptVQE():
         # Prepare quantum state
         psi = self.state_prep()
         paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = self.paramstring)
-        #paulistring = sum(self.appended_ops)
         evolution = PauliEvolutionGate(paulistring, time=1)
         psi.compose(evolution, inplace=True)
 
         operator = a @ b - b @ a
         # The derivative of the energy with respect to parameters yields a complex phase
         operator = 1.0j * operator.chop().simplify()
-
         # Measure value
         exp_val = self.calc_exp_val(psi, operator)
 
@@ -144,7 +143,7 @@ class QubitAdaptVQE():
 
         e = self.calc_exp_val(psi, self.hamiltonian)
 
-        return e
+        return e + self.hnuc
 
     def optimize_params(self, args={"disp": True}):
         """
@@ -164,13 +163,13 @@ class QubitAdaptVQE():
         Generate operator pool
         """
 
-        op_strings = []
-        for p in range(self.nqubits - 1):
-            q = self.nqubits - p - 2
-            op_strings.append("I" * p + "ZY" + "I" * q)
-        for p in range(self.nqubits - 1):
-            q = self.nqubits - p - 1
-            op_strings.append("I" * p + "Y" + "I" * q)
+        op_strings = ["IIII","XXII", "IIXX", "XXXX"]
+        #for p in range(self.nqubits - 1):
+        #    q = self.nqubits - p - 2
+        #    op_strings.append("I" * p + "ZY" + "I" * q)
+        #for p in range(self.nqubits - 1):
+        #    q = self.nqubits - p - 1
+        #    op_strings.append("I" * p + "Y" + "I" * q)
 
         pool = [SparsePauliOp(op) for op in op_strings]
 
@@ -182,7 +181,6 @@ class QubitAdaptVQE():
         """
         psi = QuantumCircuit(self.nqubits)
         for iocc in self.ansatz:
-            #psi.x(self.nqubits - iocc - 1)
             psi.x(iocc)
 
         return psi
@@ -283,7 +281,6 @@ class QubitAdaptVQE():
 
         # Core term
         H = 0.0 * self.identity(2 * norb)
-
         # Extra term due to reorganization of two-body Hamiltonian
         t1e = self.h1e - 0.5 * np.einsum("pxrx->pr", self.h2e)
 
@@ -315,6 +312,37 @@ class QubitAdaptVQE():
 
     def minimize_energy(self, maxiter):
 
+        #coeffs = [1.0, 0.0, 0.0, 0.0]
+        #def mini(coeffs):
+        #    psi = self.state_prep()
+        #    pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XXXX"], coeffs = coeffs)
+        #    evolution = PauliEvolutionGate(pauli, time=1)
+        #    psi.compose(evolution, inplace=True)
+        #    op = self.hamiltonian
+        #    print(self.calc_exp_val(psi, op) + self.hnuc, coeffs)
+        #    for coeff in op.chop().simplify().coeffs:
+        #        if coeff.imag > 0:
+        #            print(coeff)
+        #    return self.calc_exp_val(psi, op.chop().simplify()) + self.hnuc
+
+        #minimize(mini, coeffs, method = "cobyla", tol=1e-4, options={"disp": True})
+
+        #self.appended_ops.append(SparsePauliOp("IIII"))
+        #with open("data.dat", "w") as f:
+        #    for op in self.operator_pool:
+        #        f.write(f"{op.paulis[0]} ")
+        #    f.write("\n")
+        #    for t in np.arange(-2.0, 2.0, 0.1):
+        #        e = []
+        #        for op in self.operator_pool:
+        #            self.appended_ops.pop()
+        #            self.appended_ops.append(op)
+        #            e.append(float(self.energy(self.paramstring + [t])))
+        #        f.write(f"{t} ")
+        #        for energy in e:
+        #            f.write(f"{energy} ")
+        #        f.write("\n")
+        
         # Data for adapt-VQE iterations
         iteration = 1
         e_last = self.energy(self.paramstring)
@@ -339,11 +367,21 @@ class QubitAdaptVQE():
 
             # Compute commutators between the Hamiltonian and the operators in the pool
             for operator in self.operator_pool:
-                comm_lst.append(self.commutator(self.hamiltonian, operator))
+                comm_lst.append(float(self.commutator(self.hamiltonian, operator)))
+            print(comm_lst)
 
-            # Find operator with largest energy decrease and apply
-            min_grad = min(comm_lst)
-            self.appended_ops.append(self.operator_pool[comm_lst.index(min_grad)])
+            if all(comm_lst[i] == 0 for i in range(len(comm_lst))):
+                second_order = []
+                for operator in self.operator_pool:
+                    second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
+                print(second_order)
+
+                # Find operator with largest energy decrease and apply
+                min_grad = min(second_order)
+                self.appended_ops.append(self.operator_pool[second_order.index(min_grad)])
+            else:
+                min_grad = min(comm_lst)
+                self.appended_ops.append(self.operator_pool[comm_lst.index(min_grad)])
             self.paramstring.append(0.0)
             print("Appended operator is:", self.appended_ops[-1].paulis[0], "with gradient:", min_grad)
 
@@ -363,8 +401,7 @@ class QubitAdaptVQE():
                 grad_norm = np.sqrt(sum([comm ** 2 for comm in comm_lst]))
                 print("Gradient norm = %.10f" %grad_norm)
                 if grad_norm < thr:
-                #if abs(e_diff) < thr:
-                    print("Final energy:", self.energy(self.paramstring))
+                    print("\nFinal energy:         %.12f" %self.energy(self.paramstring))
                     break
             print("\n")
 
