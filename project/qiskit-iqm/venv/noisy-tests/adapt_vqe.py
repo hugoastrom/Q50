@@ -41,7 +41,7 @@ class QubitAdaptVQE():
         
         # Declare variables needed
         self.backend = None
-        self.use_cholesky = False
+        self.use_cholesky = True
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
@@ -163,13 +163,14 @@ class QubitAdaptVQE():
         Generate operator pool
         """
 
-        op_strings = ["IIII","XXII", "IIXX", "XXXX"]
-        #for p in range(self.nqubits - 1):
-        #    q = self.nqubits - p - 2
-        #    op_strings.append("I" * p + "ZY" + "I" * q)
-        #for p in range(self.nqubits - 1):
-        #    q = self.nqubits - p - 1
-        #    op_strings.append("I" * p + "Y" + "I" * q)
+        #op_strings = ["IIII","XXII", "IIXX", "XXXX"]
+        op_strings = []
+        for p in range(self.nqubits - 1):
+            q = self.nqubits - p - 2
+            op_strings.append("I" * p + "ZY" + "I" * q)
+        for p in range(self.nqubits - 1):
+            q = self.nqubits - p - 1
+            op_strings.append("I" * p + "Y" + "I" * q)
 
         pool = [SparsePauliOp(op) for op in op_strings]
 
@@ -302,28 +303,42 @@ class QubitAdaptVQE():
                         Lg += Lop[p, r, g] * Exc[p][r - p]
                 H += 0.5 * Lg @ Lg
         else:
-            for p in range(norb):
-                for q in range(p, norb):
-                    for r in range(norb):
-                        for s in range(r, norb):
-                            H += 0.5 * self.h2e[p, s, q, r] * Exc[p][q - p] @ Exc[r][s - r]
+            #for p in range(norb):
+            #    for q in range(p, norb):
+            #        for r in range(norb):
+            #            for s in range(r, norb):
+            #                H += 0.5 * self.h2e[p, s, q, r] * Exc[p][q - p] @ Exc[r][s - r]
+            
+            from qiskit_nature.second_q.hamiltonians import ElectronicEnergy
+            from qiskit_nature.second_q.mappers import JordanWignerMapper
+            
+            # build Hamiltonian
+            hamiltonian = ElectronicEnergy.from_raw_integrals(self.h1e, self.h2e)
+            
+            # fermionic operator
+            fermionic_op = hamiltonian.second_q_op()
+            
+            # map to qubits
+            mapper = JordanWignerMapper()
+            qubit_op = mapper.map(fermionic_op)
+            H = qubit_op
 
         return H.chop().simplify()
 
     def minimize_energy(self, maxiter):
 
-        #coeffs = [1.0, 0.0, 0.0, 0.0]
-        #def mini(coeffs):
-        #    psi = self.state_prep()
-        #    pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XXXX"], coeffs = coeffs)
-        #    evolution = PauliEvolutionGate(pauli, time=1)
-        #    psi.compose(evolution, inplace=True)
-        #    op = self.hamiltonian
-        #    print(self.calc_exp_val(psi, op) + self.hnuc, coeffs)
-        #    for coeff in op.chop().simplify().coeffs:
-        #        if coeff.imag > 0:
-        #            print(coeff)
-        #    return self.calc_exp_val(psi, op.chop().simplify()) + self.hnuc
+        coeffs = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        def mini(coeffs):
+            psi = self.state_prep()
+            pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XIIX", "IXXI", "XXXX"], coeffs = coeffs)
+            evolution = PauliEvolutionGate(pauli, time=1)
+            psi.compose(evolution, inplace=True)
+            op = self.hamiltonian
+            print(self.calc_exp_val(psi, op) + self.hnuc, coeffs)
+            for coeff in op.chop().simplify().coeffs:
+                if coeff.imag > 0:
+                    print(coeff)
+            return self.calc_exp_val(psi, op.chop().simplify()) + self.hnuc
 
         #minimize(mini, coeffs, method = "cobyla", tol=1e-4, options={"disp": True})
 
@@ -370,7 +385,9 @@ class QubitAdaptVQE():
                 comm_lst.append(float(self.commutator(self.hamiltonian, operator)))
             print(comm_lst)
 
+            # Check for saddle point
             if all(comm_lst[i] == 0 for i in range(len(comm_lst))):
+                print("Saddle point, doing second order optimization")
                 second_order = []
                 for operator in self.operator_pool:
                     second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
