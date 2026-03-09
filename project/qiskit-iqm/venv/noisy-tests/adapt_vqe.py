@@ -49,7 +49,7 @@ class QubitAdaptVQE():
         print("Number of qubits = %i\n" %self.nqubits)
 
         # Construct operator pool and parameters
-        self.operator_pool = self.generate_pool()
+        self.operator_pool = self.generate_pool(0)
         self.appended_ops = [SparsePauliOp(["I" * self.nqubits], coeffs = [np.pi / 2.0])]
         self.paramstring = [0.0]
 
@@ -158,19 +158,24 @@ class QubitAdaptVQE():
 
         return res.x
 
-    def generate_pool(self):
+    def generate_pool(self, pool_type):
         """
         Generate operator pool
         """
 
         #op_strings = ["IIII","XXII", "IIXX", "XXXX"]
-        op_strings = []
-        for p in range(self.nqubits - 1):
-            q = self.nqubits - p - 2
-            op_strings.append("I" * p + "ZY" + "I" * q)
-        for p in range(self.nqubits - 1):
-            q = self.nqubits - p - 1
-            op_strings.append("I" * p + "Y" + "I" * q)
+        if pool_type == 0:
+            op_strings = ["ZY", "YI"]
+            for q in range(2, self.nqubits):
+                op_strings = ["Z" + op for op in op_strings] + ["Y" + "I" * q, "IY" + "I" * (q - 1)]
+        elif pool_type == 1:
+            op_strings = []
+            for p in range(self.nqubits - 1):
+                q = self.nqubits - p - 2
+                op_strings.append("I" * p + "ZY" + "I" * q)
+            for p in range(self.nqubits - 1):
+                q = self.nqubits - p - 1
+                op_strings.append("I" * p + "Y" + "I" * q)
 
         pool = [SparsePauliOp(op) for op in op_strings]
 
@@ -327,10 +332,10 @@ class QubitAdaptVQE():
 
     def minimize_energy(self, maxiter):
 
-        coeffs = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        coeffs = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         def mini(coeffs):
             psi = self.state_prep()
-            pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XIIX", "IXXI", "XXXX"], coeffs = coeffs)
+            pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XIIX", "IXXI", "XIXI", "IXIX", "XXXX"], coeffs = coeffs)
             evolution = PauliEvolutionGate(pauli, time=1)
             psi.compose(evolution, inplace=True)
             op = self.hamiltonian
@@ -342,21 +347,24 @@ class QubitAdaptVQE():
 
         #minimize(mini, coeffs, method = "cobyla", tol=1e-4, options={"disp": True})
 
-        #self.appended_ops.append(SparsePauliOp("IIII"))
-        #with open("data.dat", "w") as f:
-        #    for op in self.operator_pool:
-        #        f.write(f"{op.paulis[0]} ")
-        #    f.write("\n")
-        #    for t in np.arange(-2.0, 2.0, 0.1):
-        #        e = []
-        #        for op in self.operator_pool:
-        #            self.appended_ops.pop()
-        #            self.appended_ops.append(op)
-        #            e.append(float(self.energy(self.paramstring + [t])))
-        #        f.write(f"{t} ")
-        #        for energy in e:
-        #            f.write(f"{energy} ")
-        #        f.write("\n")
+        def plot_params():
+            self.appended_ops.append(SparsePauliOp("IIII"))
+            with open("data.dat", "w") as f:
+                for op in self.operator_pool:
+                    f.write(f"{op.paulis[0]} ")
+                f.write("\n")
+                for t in np.arange(-4.0, 4.0, 0.1):
+                    e = []
+                    for op in self.operator_pool:
+                        self.appended_ops.pop()
+                        self.appended_ops.append(op)
+                        e.append(float(self.energy(self.paramstring + [t])))
+                    f.write(f"{t} ")
+                    for energy in e:
+                        f.write(f"{energy} ")
+                    f.write("\n")
+            self.appended_ops.pop()
+        #plot_params()
         
         # Data for adapt-VQE iterations
         iteration = 1
