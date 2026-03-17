@@ -50,8 +50,8 @@ class QubitAdaptVQE():
 
         # Construct operator pool and parameters
         self.operator_pool = self.generate_pool(1)
-        self.appended_ops = [SparsePauliOp(["I" * self.nqubits], coeffs = [np.pi / 2.0])]
-        self.paramstring = [0.0]
+        self.appended_ops = []
+        self.paramstring = []
 
     def estimator_dict(self, estimator):
         d = {"estimator": Estimator(),
@@ -119,9 +119,12 @@ class QubitAdaptVQE():
 
         # Prepare quantum state
         psi = self.state_prep()
-        paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = self.paramstring)
-        evolution = PauliEvolutionGate(paulistring, time=1)
-        psi.compose(evolution, inplace=True)
+        for op, theta in zip(self.appended_ops, self.paramstring):
+            evolution = PauliEvolutionGate(op, time=theta)
+            psi.compose(evolution, inplace=True)
+        #paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = self.paramstring)
+        #evolution = PauliEvolutionGate(paulistring, time=1)
+        #psi.compose(evolution, inplace=True)
 
         operator = a @ b - b @ a
         # The derivative of the energy with respect to parameters yields a complex phase
@@ -137,9 +140,12 @@ class QubitAdaptVQE():
         """
         psi = self.state_prep()
         # Need to declare the parameters explicitly for SciPy optimization routine
-        paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = params)
-        evolution = PauliEvolutionGate(paulistring, time=1)
-        psi.compose(evolution, inplace=True)
+        for op, theta in zip(self.appended_ops, params):
+            evolution = PauliEvolutionGate(op, time=theta)
+            psi.compose(evolution, inplace=True)
+        #paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = params)
+        #evolution = PauliEvolutionGate(paulistring, time=1)
+        #psi.compose(evolution, inplace=True)
 
         e = self.calc_exp_val(psi, self.hamiltonian)
 
