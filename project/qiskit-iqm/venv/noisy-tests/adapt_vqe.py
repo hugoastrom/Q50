@@ -16,7 +16,7 @@ from scipy.optimize import minimize
 
 class QubitAdaptVQE():
     
-    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer):
+    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, cholesky = True):
         """
         Args:
             mo_occs (list): MO occupations
@@ -41,7 +41,7 @@ class QubitAdaptVQE():
         
         # Declare variables needed
         self.backend = None
-        self.use_cholesky = True
+        self.use_cholesky = cholesky
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
@@ -49,7 +49,7 @@ class QubitAdaptVQE():
         print("Number of qubits = %i\n" %self.nqubits)
 
         # Construct operator pool and parameters
-        self.operator_pool = self.generate_pool(0)
+        self.operator_pool = self.generate_pool(1)
         self.appended_ops = [SparsePauliOp(["I" * self.nqubits], coeffs = [np.pi / 2.0])]
         self.paramstring = [0.0]
 
@@ -163,7 +163,6 @@ class QubitAdaptVQE():
         Generate operator pool
         """
 
-        #op_strings = ["IIII","XXII", "IIXX", "XXXX"]
         if pool_type == 0:
             op_strings = ["ZY", "YI"]
             for q in range(2, self.nqubits):
@@ -176,7 +175,10 @@ class QubitAdaptVQE():
             for p in range(self.nqubits - 1):
                 q = self.nqubits - p - 1
                 op_strings.append("I" * p + "Y" + "I" * q)
+        else:
+            raise ValueError("Pool type not implemented")
 
+        #op_strings = ["IIII", "XXII", "IIXX", "XXXX"]
         pool = [SparsePauliOp(op) for op in op_strings]
 
         return pool
@@ -332,17 +334,14 @@ class QubitAdaptVQE():
 
     def minimize_energy(self, maxiter):
 
-        coeffs = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        coeffs = [1.0, 0.0, 0.0, 0.0]
         def mini(coeffs):
             psi = self.state_prep()
-            pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XIIX", "IXXI", "XIXI", "IXIX", "XXXX"], coeffs = coeffs)
+            pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XXXX"], coeffs = coeffs)
             evolution = PauliEvolutionGate(pauli, time=1)
             psi.compose(evolution, inplace=True)
             op = self.hamiltonian
             print(self.calc_exp_val(psi, op) + self.hnuc, coeffs)
-            for coeff in op.chop().simplify().coeffs:
-                if coeff.imag > 0:
-                    print(coeff)
             return self.calc_exp_val(psi, op.chop().simplify()) + self.hnuc
 
         #minimize(mini, coeffs, method = "cobyla", tol=1e-4, options={"disp": True})
@@ -364,6 +363,7 @@ class QubitAdaptVQE():
                         f.write(f"{energy} ")
                     f.write("\n")
             self.appended_ops.pop()
+            return
         #plot_params()
         
         # Data for adapt-VQE iterations
@@ -395,11 +395,16 @@ class QubitAdaptVQE():
 
             # Check for saddle point
             if all(comm_lst[i] == 0 for i in range(len(comm_lst))):
-                print("Saddle point, doing second order optimization")
+                print("\nAll gradients are zero, doing second derivatives")
                 second_order = []
                 for operator in self.operator_pool:
                     second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
                 print(second_order)
+                if all(second_order) >=0:
+                    print("Minimum found")
+                    break
+                else:
+                    print("Saddle point, doing second order optimization")
 
                 # Find operator with largest energy decrease and apply
                 min_grad = min(second_order)
@@ -426,10 +431,10 @@ class QubitAdaptVQE():
                 grad_norm = np.sqrt(sum([comm ** 2 for comm in comm_lst]))
                 print("Gradient norm = %.10f" %grad_norm)
                 if grad_norm < thr:
-                    print("\nFinal energy:         %.12f" %self.energy(self.paramstring))
                     break
             print("\n")
 
             e_last = e
 
             iteration += 1
+        print("\nFinal energy:         %.12f" %self.energy(self.paramstring))
