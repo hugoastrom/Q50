@@ -8,9 +8,6 @@ from qiskit import QuantumCircuit, transpile
 from qiskit.circuit.library import PauliEvolutionGate, StatePreparation
 from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV2
 from qiskit.quantum_info import SparsePauliOp
-from qiskit.synthesis import SuzukiTrotter
-from qiskit.quantum_info import Operator, Statevector
-from scipy.linalg import expm
 
 # Python packages
 import numpy as np
@@ -19,7 +16,7 @@ from scipy.optimize import minimize
 
 class QubitAdaptVQE():
     
-    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, cholesky = False):
+    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, cholesky = False, conv_thr = 1e-6, classical = False):
         """
         Args:
             mo_occs (list): MO occupations
@@ -46,6 +43,8 @@ class QubitAdaptVQE():
         # Declare variables needed
         self.backend = None
         self.use_cholesky = cholesky
+        self.conv_thr = conv_thr
+        self.classical = classical
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
@@ -78,21 +77,24 @@ class QubitAdaptVQE():
 
     def calc_exp_val(self, qc: QuantumCircuit, op: SparsePauliOp):
         """
-        Calculate expectation value of op using qc
+        Calculate expectation value of op classically using qc
         args:
             qc (QuntumCircuit): The state
             op (SparsePauliOp): The observable
         """
-        estimator = self.estimator
-        if isinstance(estimator, Estimator):
-            res = estimator.run(qc, op).result().values
-        elif isinstance(estimator, StatevectorEstimator):
-            res = estimator.run([(qc, op)]).result()[0].data.evs
-        elif isinstance(estimator, BackendEstimatorV2):
-            qc = transpile(qc, backend=self.backend)
-            res = estimator.run([(qc, op)]).result()[0].data.evs
+        if self.classical:
+            estimator = self.estimator
+            if isinstance(estimator, Estimator):
+                res = estimator.run(qc, op).result().values
+            elif isinstance(estimator, StatevectorEstimator):
+                res = estimator.run([(qc, op)]).result()[0].data.evs
+            elif isinstance(estimator, BackendEstimatorV2):
+                qc = transpile(qc, backend=self.backend)
+                res = estimator.run([(qc, op)]).result()[0].data.evs
+            else:
+                raise ValueError("Undefined estimator")
         else:
-            raise ValueError("Undefined estimator")
+            res = self.run_qc(qc, self.shots)
 
         return res
 
@@ -113,10 +115,6 @@ class QubitAdaptVQE():
 
         return
 
-    def apply_exact_evolution(self, qc, op, theta):
-        U = expm(-1j * theta * op.to_matrix())
-        return Statevector(qc).evolve(Operator(U))
-
     def commutator(self, a: SparsePauliOp, b: SparsePauliOp):
         """
         Measure commutator AB - BA to obtain energy derivatives dE / d\theta_i = <psi|[H, O_i]|psi>
@@ -128,20 +126,14 @@ class QubitAdaptVQE():
         # Prepare quantum state
         psi = self.state_prep()
         for op, theta in zip(self.appended_ops, self.paramstring):
-            evolution = PauliEvolutionGate(op, time=theta)#, synthesis=SuzukiTrotter(order=2, reps=2))
+            evolution = PauliEvolutionGate(op, time=theta)
             psi.compose(evolution, inplace=True)
 
-        #psi = Statevector.from_instruction(self.state_prep())
-        #for op, theta in zip(self.appended_ops, self.paramstring):
-        #    psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
-
-            
         operator = a @ b - b @ a
         # The derivative of the energy with respect to parameters yields a complex phase
         operator = -1.0j * operator.chop().simplify()
         # Measure value
         exp_val = self.calc_exp_val(psi, operator)
-        #exp_val = np.real(psi.expectation_value(operator))
 
         return exp_val
 
@@ -152,16 +144,10 @@ class QubitAdaptVQE():
         psi = self.state_prep()
         # Need to declare the parameters explicitly for SciPy optimization routine
         for op, theta in zip(self.appended_ops, params):
-            #evolution = self.apply_exact_evolution(psi, op, theta)
-            evolution = PauliEvolutionGate(op, time=theta)#, synthesis=SuzukiTrotter(order=2, reps=2))
+            evolution = PauliEvolutionGate(op, time=theta)
             psi.compose(evolution, inplace=True)
 
         e = self.calc_exp_val(psi, self.hamiltonian)
-        #psi = Statevector.from_instruction(self.state_prep())
-        #for op, theta in zip(self.appended_ops, params):
-        #    psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
-
-        #e = np.real(psi.expectation_value(self.hamiltonian))
 
         return e + self.hnuc
 
@@ -198,7 +184,7 @@ class QubitAdaptVQE():
         #else:
         #    raise ValueError("Pool type not implemented")
 
-        #op_strings = ["XYXY"]#, "YYXX", "XYYX", "YXXY"]
+        #op_strings = ["XYXY"], "YYXX", "XYYX", "YXXY"]
         #pool = [SparsePauliOp(op) for op in op_strings]
         #norb = self.h1e.shape[0]
         # List of fermionic creation and annihilation operators
@@ -387,9 +373,7 @@ class QubitAdaptVQE():
         print("Number of electrons =", self.calc_exp_val(self.state_prep(), N_op))
         
         # Data for adapt-VQE iterations
-        iteration = 1
         e_last = self.energy(self.paramstring)
-        thr = 1e-6
 
         print("Initial energy is: %.12f" % e_last)
         a = [0 for q in range(self.nqubits)]
@@ -398,10 +382,10 @@ class QubitAdaptVQE():
         ansatz_str = ""
         for q in a:
             ansatz_str += str(q)
-        print("Hartree–Fock ansatz is: |%s>" %ansatz_str)
+        print("Hartree–Fock ansatz |\alpha_1\alpha_2...\alpha_n\beta_1\beta_2...\beta_m> = |%s>" %ansatz_str)
         print("----------------------------------")
 
-        while iteration <= maxiter:
+        for iteration in range(1, maxiter + 1):
 
             print("          Iteration %i\n" %iteration)
             
@@ -422,7 +406,7 @@ class QubitAdaptVQE():
                 print(second_order)
                 if all(two_der >= 0.0 for two_der in second_order):
                     print("Minimum found")
-                    #break
+                    break
                 else:
                     print("Saddle point, doing second order optimization")
 
@@ -435,7 +419,6 @@ class QubitAdaptVQE():
                 grad = comm_lst[idx]
                 self.appended_ops.append(self.operator_pool[idx])
             self.paramstring.append(0.0)
-            #self.paramstring.append(1e-3)
             print("\nAppended operator is:\n", self.appended_ops[-1], "\nwith gradient:", grad)
 
             # Calculate norm of parameter vector
@@ -453,7 +436,7 @@ class QubitAdaptVQE():
             if iteration > 1:
                 grad_norm = np.sqrt(sum([comm ** 2 for comm in comm_lst]))
                 print("Gradient norm = %.10f" %grad_norm)
-                if grad_norm < thr:
+                if grad_norm < self.conv_thr:
                     break
             print("\n")
 
