@@ -126,22 +126,22 @@ class QubitAdaptVQE():
         """
 
         # Prepare quantum state
-        #psi = self.state_prep()
-        #for op, theta in zip(self.appended_ops, self.paramstring):
-        #    evolution = PauliEvolutionGate(op, time=theta, synthesis=SuzukiTrotter(order=2, reps=2))
-        #    psi.compose(evolution, inplace=True)
-
-        psi = Statevector.from_instruction(self.state_prep())
+        psi = self.state_prep()
         for op, theta in zip(self.appended_ops, self.paramstring):
-            psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
+            evolution = PauliEvolutionGate(op, time=theta)#, synthesis=SuzukiTrotter(order=2, reps=2))
+            psi.compose(evolution, inplace=True)
+
+        #psi = Statevector.from_instruction(self.state_prep())
+        #for op, theta in zip(self.appended_ops, self.paramstring):
+        #    psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
 
             
         operator = a @ b - b @ a
         # The derivative of the energy with respect to parameters yields a complex phase
         operator = -1.0j * operator.chop().simplify()
         # Measure value
-        #exp_val = self.calc_exp_val(psi, operator)
-        exp_val = np.real(psi.expectation_value(operator))
+        exp_val = self.calc_exp_val(psi, operator)
+        #exp_val = np.real(psi.expectation_value(operator))
 
         return exp_val
 
@@ -149,18 +149,19 @@ class QubitAdaptVQE():
         """
         Measure energy
         """
-        #psi = self.state_prep()
+        psi = self.state_prep()
         # Need to declare the parameters explicitly for SciPy optimization routine
-        #for op, theta in zip(self.appended_ops, params):
-        #    evolution = self.apply_exact_evolution(psi, op, theta)#PauliEvolutionGate(op, time=theta, synthesis=SuzukiTrotter(order=2, reps=2))
-        #    psi.compose(evolution, inplace=True)
-
-        #e = self.calc_exp_val(psi, self.hamiltonian)
-        psi = Statevector.from_instruction(self.state_prep())
         for op, theta in zip(self.appended_ops, params):
-            psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
+            #evolution = self.apply_exact_evolution(psi, op, theta)
+            evolution = PauliEvolutionGate(op, time=theta)#, synthesis=SuzukiTrotter(order=2, reps=2))
+            psi.compose(evolution, inplace=True)
 
-        e = np.real(psi.expectation_value(self.hamiltonian))
+        e = self.calc_exp_val(psi, self.hamiltonian)
+        #psi = Statevector.from_instruction(self.state_prep())
+        #for op, theta in zip(self.appended_ops, params):
+        #    psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
+
+        #e = np.real(psi.expectation_value(self.hamiltonian))
 
         return e + self.hnuc
 
@@ -385,22 +386,6 @@ class QubitAdaptVQE():
         N_op = sum(C[p] @ D[p] for p in range(self.nqubits))
         print("Number of electrons =", self.calc_exp_val(self.state_prep(), N_op))
         
-        def test_single_operator(self):
-
-            op = self.operator_pool[0]
-            def energy_theta(theta):
-                psi = self.state_prep()
-                evolution = PauliEvolutionGate(op, time=theta[0], synthesis=SuzukiTrotter(order=2, reps=2))
-                psi.compose(evolution, inplace=True)
-                return self.calc_exp_val(psi, self.hamiltonian) + self.hnuc
-
-            res = minimize(energy_theta, [0.0], method="cobyla")
-
-            print("Optimal theta:", res.x)
-            print("Energy:", res.fun)
-
-        test_single_operator(self)
-        
         # Data for adapt-VQE iterations
         iteration = 1
         e_last = self.energy(self.paramstring)
@@ -427,7 +412,6 @@ class QubitAdaptVQE():
             for operator in self.operator_pool:
                 comm_val = self.commutator(self.hamiltonian, operator)
                 comm_lst.append(np.real_if_close(comm_val))
-            print(comm_lst)
 
             # Check for saddle point
             if all(abs(comm) < 1e-8 for comm in comm_lst):
@@ -450,8 +434,8 @@ class QubitAdaptVQE():
                 idx = np.argmax(np.abs(comm_lst))
                 grad = comm_lst[idx]
                 self.appended_ops.append(self.operator_pool[idx])
-            #self.paramstring.append(0.0)
-            self.paramstring.append(1e-3)
+            self.paramstring.append(0.0)
+            #self.paramstring.append(1e-3)
             print("\nAppended operator is:\n", self.appended_ops[-1], "\nwith gradient:", grad)
 
             # Calculate norm of parameter vector
