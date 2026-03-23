@@ -16,7 +16,7 @@ from scipy.optimize import minimize
 
 class QubitAdaptVQE():
     
-    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, cholesky = False, conv_thr = 1e-6, classical = False):
+    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, shots = 1000, cholesky = False, conv_thr = 1e-6, classical = False):
         """
         Args:
             mo_occs (list): MO occupations
@@ -45,6 +45,7 @@ class QubitAdaptVQE():
         self.use_cholesky = cholesky
         self.conv_thr = conv_thr
         self.classical = classical
+        self.shots = shots
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
@@ -72,8 +73,9 @@ class QubitAdaptVQE():
         job = backend.run(trans_c, shots=shots)
         result = job.result()
         exp_result = job.result()._get_experiment(qc)
+        counts = result.get_counts()
 
-        return result
+        return counts
 
     def calc_exp_val(self, qc: QuantumCircuit, op: SparsePauliOp):
         """
