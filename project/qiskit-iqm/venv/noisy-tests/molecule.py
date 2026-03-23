@@ -18,15 +18,15 @@ if __name__ == "__main__":
     # Run RHF calculation
     mf = scf.RHF(mol).run()
     ehf = mf.e_tot
-    print("RHF energy = %.12f" %ehf)
     e_elec = mf.energy_elec()[0]
     hnuc = ehf - e_elec
     
     # One- and two-electron Hamiltonians in MO basis
-    h1 = mf.mo_coeff.T @ scf.hf.get_hcore(mol) @ mf.mo_coeff
-    eri_ao = mol.intor("int2e")                     # AO integrals
-    eri_mo = ao2mo.incore.full(eri_ao, mf.mo_coeff) # MO integrals in 8-fold symmetry
-    eri_mo = ao2mo.restore(1, eri_mo, mol.nao)      # Restore full 4-index tensor (ij|kl)
+    c = mf.mo_coeff
+    h1 = c.T @ scf.hf.get_hcore(mol) @ c
+    eri_ao = mol.intor("int2e")                   # AO integrals
+    eri_mo = ao2mo.incore.full(eri_ao, c)         # MO integrals in 8-fold symmetry
+    eri_mo = ao2mo.restore(1, eri_mo, c.shape[1]) # Restore full 4-index tensor (ij|kl)
 
     # Create qubit-adapt-VQE object
     occs = mf.mo_occ

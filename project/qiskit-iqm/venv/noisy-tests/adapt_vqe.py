@@ -8,6 +8,9 @@ from qiskit import QuantumCircuit, transpile
 from qiskit.circuit.library import PauliEvolutionGate, StatePreparation
 from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV2
 from qiskit.quantum_info import SparsePauliOp
+from qiskit.synthesis import SuzukiTrotter
+from qiskit.quantum_info import Operator, Statevector
+from scipy.linalg import expm
 
 # Python packages
 import numpy as np
@@ -16,7 +19,7 @@ from scipy.optimize import minimize
 
 class QubitAdaptVQE():
     
-    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, cholesky = True):
+    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, cholesky = False):
         """
         Args:
             mo_occs (list): MO occupations
@@ -34,6 +37,7 @@ class QubitAdaptVQE():
                 self.ansatz.append(iocc)
                 if occ > 1:
                     self.ansatz.append(iocc + norb)
+
         self.hnuc = hnuc
         self.h1e = h1e
         self.h2e = h2e
@@ -109,6 +113,10 @@ class QubitAdaptVQE():
 
         return
 
+    def apply_exact_evolution(self, qc, op, theta):
+        U = expm(-1j * theta * op.to_matrix())
+        return Statevector(qc).evolve(Operator(U))
+
     def commutator(self, a: SparsePauliOp, b: SparsePauliOp):
         """
         Measure commutator AB - BA to obtain energy derivatives dE / d\theta_i = <psi|[H, O_i]|psi>
@@ -118,19 +126,22 @@ class QubitAdaptVQE():
         """
 
         # Prepare quantum state
-        psi = self.state_prep()
-        for op, theta in zip(self.appended_ops, self.paramstring):
-            evolution = PauliEvolutionGate(op, time=theta)
-            psi.compose(evolution, inplace=True)
-        #paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = self.paramstring)
-        #evolution = PauliEvolutionGate(paulistring, time=1)
-        #psi.compose(evolution, inplace=True)
+        #psi = self.state_prep()
+        #for op, theta in zip(self.appended_ops, self.paramstring):
+        #    evolution = PauliEvolutionGate(op, time=theta, synthesis=SuzukiTrotter(order=2, reps=2))
+        #    psi.compose(evolution, inplace=True)
 
+        psi = Statevector.from_instruction(self.state_prep())
+        for op, theta in zip(self.appended_ops, self.paramstring):
+            psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
+
+            
         operator = a @ b - b @ a
         # The derivative of the energy with respect to parameters yields a complex phase
-        operator = 1.0j * operator.chop().simplify()
+        operator = -1.0j * operator.chop().simplify()
         # Measure value
-        exp_val = self.calc_exp_val(psi, operator)
+        #exp_val = self.calc_exp_val(psi, operator)
+        exp_val = np.real(psi.expectation_value(operator))
 
         return exp_val
 
@@ -138,16 +149,18 @@ class QubitAdaptVQE():
         """
         Measure energy
         """
-        psi = self.state_prep()
+        #psi = self.state_prep()
         # Need to declare the parameters explicitly for SciPy optimization routine
-        for op, theta in zip(self.appended_ops, params):
-            evolution = PauliEvolutionGate(op, time=theta)
-            psi.compose(evolution, inplace=True)
-        #paulistring = SparsePauliOp([op.paulis[0] for op in self.appended_ops], coeffs = params)
-        #evolution = PauliEvolutionGate(paulistring, time=1)
-        #psi.compose(evolution, inplace=True)
+        #for op, theta in zip(self.appended_ops, params):
+        #    evolution = self.apply_exact_evolution(psi, op, theta)#PauliEvolutionGate(op, time=theta, synthesis=SuzukiTrotter(order=2, reps=2))
+        #    psi.compose(evolution, inplace=True)
 
-        e = self.calc_exp_val(psi, self.hamiltonian)
+        #e = self.calc_exp_val(psi, self.hamiltonian)
+        psi = Statevector.from_instruction(self.state_prep())
+        for op, theta in zip(self.appended_ops, params):
+            psi = psi.evolve(Operator(expm(-1j * theta * op.to_matrix())))
+
+        e = np.real(psi.expectation_value(self.hamiltonian))
 
         return e + self.hnuc
 
@@ -169,23 +182,51 @@ class QubitAdaptVQE():
         Generate operator pool
         """
 
-        if pool_type == 0:
-            op_strings = ["ZY", "YI"]
-            for q in range(2, self.nqubits):
-                op_strings = ["Z" + op for op in op_strings] + ["Y" + "I" * q, "IY" + "I" * (q - 1)]
-        elif pool_type == 1:
-            op_strings = []
-            for p in range(self.nqubits - 1):
-                q = self.nqubits - p - 2
-                op_strings.append("I" * p + "ZY" + "I" * q)
-            for p in range(self.nqubits - 1):
-                q = self.nqubits - p - 1
-                op_strings.append("I" * p + "Y" + "I" * q)
-        else:
-            raise ValueError("Pool type not implemented")
+        #if pool_type == 0:
+        #    op_strings = ["ZY", "YI"]
+        #    for q in range(2, self.nqubits):
+        #        op_strings = ["Z" + op for op in op_strings] + ["Y" + "I" * q, "IY" + "I" * (q - 1)]
+        #elif pool_type == 1:
+        #    op_strings = []
+        #    for p in range(self.nqubits - 1):
+        #        q = self.nqubits - p - 2
+        #        op_strings.append("I" * p + "ZY" + "I" * q)
+        #    for p in range(self.nqubits - 1):
+        #        q = self.nqubits - p - 1
+        #        op_strings.append("I" * p + "Y" + "I" * q)
+        #else:
+        #    raise ValueError("Pool type not implemented")
 
-        #op_strings = ["IIII", "XXII", "IIXX", "XXXX"]
-        pool = [SparsePauliOp(op) for op in op_strings]
+        #op_strings = ["XYXY"]#, "YYXX", "XYYX", "YXXY"]
+        #pool = [SparsePauliOp(op) for op in op_strings]
+        #norb = self.h1e.shape[0]
+        # List of fermionic creation and annihilation operators
+        #C, D = self.qubit_mapping(2 * norb, mapping="jordan_wigner")
+        #pool = [ C[2] @ C[3] @ D[0] @ D[1] - C[1] @ C[0] @ D[3] @ D[2] ]
+        #pool = [1.0j * ((C[1] @ D[0] + C[3] @ D[2]) - (C[0] @ D[1] + C[2] @ D[3])).chop().simplify(), 1.0j * (C[2] @ C[3] @ D[0] @ D[1] - C[1] @ C[0] @ D[3] @ D[2]).chop().simplify()]
+        #print(pool)
+
+        norb = self.h1e.shape[0]
+        nspin = 2 * norb
+        C, D = self.qubit_mapping(nspin)
+        
+        pool = []
+        
+        # Singles
+        for i in range(nspin):
+            for a in range(nspin):
+                if i >= a:
+                    continue
+                op = 1j * (C[a] @ D[i] - C[i] @ D[a])
+                pool.append(op.chop().simplify())
+
+        # Doubles
+        for i in range(nspin):
+            for j in range(i+1, nspin):
+                for a in range(nspin):
+                    for b in range(a+1, nspin):
+                        op = 1j * (C[a] @ C[b] @ D[i] @ D[j] - C[j] @ C[i] @ D[b] @ D[a])
+                        pool.append(op.chop().simplify())
 
         return pool
 
@@ -258,9 +299,13 @@ class QubitAdaptVQE():
         c_list = []
         if mapping == "jordan_wigner":
             for p in range(n):
-                z_op =  "Z" * p
-                id_op = "I" * (n - p - 1)
-                cp = SparsePauliOp.from_list([(id_op + "X" + z_op, 0.5), (id_op + "Y" + z_op, -0.5j)])
+                z_string = "Z" * p
+                x_string = z_string + "X" + "I" * (n - p - 1)
+                y_string = z_string + "Y" + "I" * (n - p - 1)
+                cp = SparsePauliOp.from_list([
+                    (x_string, 0.5),
+                    (y_string, -0.5j)
+                ])
                 c_list.append(cp)
         else:
             raise ValueError("Unsupported mapping.")
@@ -316,12 +361,6 @@ class QubitAdaptVQE():
                         Lg += Lop[p, r, g] * Exc[p][r - p]
                 H += 0.5 * Lg @ Lg
         else:
-            #for p in range(norb):
-            #    for q in range(p, norb):
-            #        for r in range(norb):
-            #            for s in range(r, norb):
-            #                H += 0.5 * self.h2e[p, s, q, r] * Exc[p][q - p] @ Exc[r][s - r]
-            
             from qiskit_nature.second_q.hamiltonians import ElectronicEnergy
             from qiskit_nature.second_q.mappers import JordanWignerMapper
             
@@ -340,37 +379,27 @@ class QubitAdaptVQE():
 
     def minimize_energy(self, maxiter):
 
-        coeffs = [1.0, 0.0, 0.0, 0.0]
-        def mini(coeffs):
-            psi = self.state_prep()
-            pauli = SparsePauliOp(["IIII", "XXII", "IIXX", "XXXX"], coeffs = coeffs)
-            evolution = PauliEvolutionGate(pauli, time=1)
-            psi.compose(evolution, inplace=True)
-            op = self.hamiltonian
-            print(self.calc_exp_val(psi, op) + self.hnuc, coeffs)
-            return self.calc_exp_val(psi, op.chop().simplify()) + self.hnuc
+        # Check for correct number of electrons
+        norb = self.h1e.shape[0]
+        C, D = self.qubit_mapping(2 * norb, mapping="jordan_wigner")
+        N_op = sum(C[p] @ D[p] for p in range(self.nqubits))
+        print("Number of electrons =", self.calc_exp_val(self.state_prep(), N_op))
+        
+        def test_single_operator(self):
 
-        #minimize(mini, coeffs, method = "cobyla", tol=1e-4, options={"disp": True})
+            op = self.operator_pool[0]
+            def energy_theta(theta):
+                psi = self.state_prep()
+                evolution = PauliEvolutionGate(op, time=theta[0], synthesis=SuzukiTrotter(order=2, reps=2))
+                psi.compose(evolution, inplace=True)
+                return self.calc_exp_val(psi, self.hamiltonian) + self.hnuc
 
-        def plot_params():
-            self.appended_ops.append(SparsePauliOp("IIII"))
-            with open("data.dat", "w") as f:
-                for op in self.operator_pool:
-                    f.write(f"{op.paulis[0]} ")
-                f.write("\n")
-                for t in np.arange(-4.0, 4.0, 0.1):
-                    e = []
-                    for op in self.operator_pool:
-                        self.appended_ops.pop()
-                        self.appended_ops.append(op)
-                        e.append(float(self.energy(self.paramstring + [t])))
-                    f.write(f"{t} ")
-                    for energy in e:
-                        f.write(f"{energy} ")
-                    f.write("\n")
-            self.appended_ops.pop()
-            return
-        #plot_params()
+            res = minimize(energy_theta, [0.0], method="cobyla")
+
+            print("Optimal theta:", res.x)
+            print("Energy:", res.fun)
+
+        test_single_operator(self)
         
         # Data for adapt-VQE iterations
         iteration = 1
@@ -396,30 +425,34 @@ class QubitAdaptVQE():
 
             # Compute commutators between the Hamiltonian and the operators in the pool
             for operator in self.operator_pool:
-                comm_lst.append(float(self.commutator(self.hamiltonian, operator)))
+                comm_val = self.commutator(self.hamiltonian, operator)
+                comm_lst.append(np.real_if_close(comm_val))
             print(comm_lst)
 
             # Check for saddle point
-            if all(comm_lst[i] == 0 for i in range(len(comm_lst))):
+            if all(abs(comm) < 1e-8 for comm in comm_lst):
                 print("\nAll gradients are zero, doing second derivatives")
                 second_order = []
                 for operator in self.operator_pool:
                     second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
                 print(second_order)
-                if all(second_order) >=0:
+                if all(two_der >= 0.0 for two_der in second_order):
                     print("Minimum found")
-                    break
+                    #break
                 else:
                     print("Saddle point, doing second order optimization")
 
                 # Find operator with largest energy decrease and apply
-                min_grad = min(second_order)
-                self.appended_ops.append(self.operator_pool[second_order.index(min_grad)])
+                idx = np.argmax(np.abs(second_order))
+                grad = second_order[idx]
+                self.appended_ops.append(self.operator_pool[idx])
             else:
-                min_grad = min(comm_lst)
-                self.appended_ops.append(self.operator_pool[comm_lst.index(min_grad)])
-            self.paramstring.append(0.0)
-            print("Appended operator is:", self.appended_ops[-1].paulis[0], "with gradient:", min_grad)
+                idx = np.argmax(np.abs(comm_lst))
+                grad = comm_lst[idx]
+                self.appended_ops.append(self.operator_pool[idx])
+            #self.paramstring.append(0.0)
+            self.paramstring.append(1e-3)
+            print("\nAppended operator is:\n", self.appended_ops[-1], "\nwith gradient:", grad)
 
             # Calculate norm of parameter vector
             print("\nOptimizing parameters...")
