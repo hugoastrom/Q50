@@ -4,11 +4,11 @@ from iqm.qiskit_iqm import IQMProvider
 from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 
 # Qiskit packages
-from qiskit import QuantumCircuit, transpile
+from qiskit import QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit.library import PauliEvolutionGate, StatePreparation
 from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV2
 from qiskit.quantum_info import SparsePauliOp, PauliList
-from qiskit_ibm_runtime import Estimator
+#from qiskit_ibm_runtime import Estimator
 
 # Python packages
 import numpy as np
@@ -53,8 +53,8 @@ class QubitAdaptVQE():
                 provider = IQMProvider(HELMI_CORTEX_URL)
                 self.backend = provider.get_backend()
             except:
-                print("No quantum environment found! Doing classical.")
-                self.run_on_real_hw = False
+                print("\nNo quantum environment found! Doing classical.")
+                #self.run_on_real_hw = False
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
@@ -76,7 +76,7 @@ class QubitAdaptVQE():
     def set_backend(self, backend):
         self.backend = backend
 
-    def classical_to_quantum(qc: QuantumCircuit, op: SparsePauliOp):
+    def classical_to_quantum(self, qc: QuantumCircuit, op: SparsePauliOp):
         """
         Translate SparsePauliOp to measurable quantum circuit
         """
@@ -96,8 +96,8 @@ class QubitAdaptVQE():
         for group in groups:
             qc_copy = qc.copy()
 
-            for pauli in group.paulis:
-                apply_basis_rotation(qc_copy, pauli.to_label())
+            rep = group.paulis[0].to_label()
+            apply_basis_rotation(qc_copy, rep)
 
             qc_copy.measure_all()
             circuits.append((qc_copy, group))
@@ -107,20 +107,20 @@ class QubitAdaptVQE():
     def run_qc(self, qc: QuantumCircuit, op: SparsePauliOp):
 
         # If the IQM hardware supports Estimator then do shortcut
-        try:
-            estimator = Estimator(backend=self.backend)
-            trans_c = transpile(qc, backend=self.backend)
-            job = estimator.run(
-                circuits=[trans_c],
-                observables=[op],
-                shots=self.shots
-            )
+        #try:
+        #    estimator = Estimator(backend=self.backend)
+        #    trans_c = transpile(qc, backend=self.backend)
+        #    job = estimator.run(
+        #        circuits=[trans_c],
+        #        observables=[op],
+        #        shots=self.shots
+        #    )
         
-            result = job.result()
-            return result.values[0]
+        #    result = job.result()
+        #    return result.values[0]
 
-        except Exception as e:
-            print("Estimator failed:", e)
+        #except Exception as e:
+        #    print("Estimator failed:", e)
 
         # Else do it manually
         circuits = self.classical_to_quantum(qc, op)
@@ -133,26 +133,27 @@ class QubitAdaptVQE():
             counts = result.get_counts()
 
             pauli_group = circuit[1]
+            shots = sum(counts.values())
             for pauli, coeff in zip(pauli_group.paulis, pauli_group.coeffs):
                 exp = 0
-                shots = sum(counts.values())
                 for bitstring, count in counts.items():
                     parity = 1
-                    for i, p in enumerate(pauli):
+                    label = pauli.to_label()
+                    for i, p in enumerate(label):
                         if p != 'I':
                             bit = bitstring[-1 - i]
                             if bit == '1':
                                 parity *= -1
                     exp += parity * count / shots
 
-                total += coeff * exp
+                total += coeff.real * exp
 
         return total
 
 
     def calc_exp_val(self, qc: QuantumCircuit, op: SparsePauliOp):
         """
-        Calculate expectation value of op classically using qc
+        Calculate expectation value of op
         args:
             qc (QuntumCircuit): The state
             op (SparsePauliOp): The observable
@@ -296,7 +297,8 @@ class QubitAdaptVQE():
         """
         Initialize quantum circuit
         """
-        psi = QuantumCircuit(self.nqubits)
+        qreg = QuantumRegister(self.nqubits)
+        psi = QuantumCircuit(qreg)
         for iocc in self.ansatz:
             psi.x(iocc)
 
@@ -457,7 +459,7 @@ class QubitAdaptVQE():
         ansatz_str = ""
         for q in a:
             ansatz_str += str(q)
-        print("Hartree–Fock ansatz |\alpha_1\alpha_2...\alpha_n\beta_1\beta_2...\beta_m> = |%s>" %ansatz_str)
+        print("Hartree–Fock ansatz is |%s>" %ansatz_str)
         print("----------------------------------")
 
         for iteration in range(1, maxiter + 1):
