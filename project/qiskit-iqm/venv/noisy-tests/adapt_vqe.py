@@ -7,16 +7,17 @@ from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit.library import PauliEvolutionGate, StatePreparation
 from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV2
-from qiskit.quantum_info import SparsePauliOp
+from qiskit.quantum_info import SparsePauliOp, PauliList
+from qiskit_ibm_runtime import Estimator
 
 # Python packages
 import numpy as np
-import cmath
+import cmath, os
 from scipy.optimize import minimize
 
 class QubitAdaptVQE():
     
-    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, shots = 1000, cholesky = False, conv_thr = 1e-6, classical = False):
+    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, shots = 1000, cholesky = False, conv_thr = 1e-6, run_on_real_hw = True):
         """
         Args:
             mo_occs (list): MO occupations
@@ -27,7 +28,7 @@ class QubitAdaptVQE():
         
         # Read input
         norb = h1e.shape[0]
-        # Ansatz is ON vector for 2 * norb spin orbitals
+        # Ansatz is an ON vector for 2 * norb spin orbitals
         self.ansatz = []
         for iocc, occ in enumerate(mo_occs):
             if occ > 0:
@@ -44,8 +45,16 @@ class QubitAdaptVQE():
         self.backend = None
         self.use_cholesky = cholesky
         self.conv_thr = conv_thr
-        self.classical = classical
+        self.run_on_real_hw = run_on_real_hw
         self.shots = shots
+        if run_on_real_hw:
+            try:
+                HELMI_CORTEX_URL = os.getenv('HELMI_CORTEX_URL')
+                provider = IQMProvider(HELMI_CORTEX_URL)
+                self.backend = provider.get_backend()
+            except:
+                print("No quantum environment found! Doing classical.")
+                self.run_on_real_hw = False
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
@@ -67,15 +76,79 @@ class QubitAdaptVQE():
     def set_backend(self, backend):
         self.backend = backend
 
-    def run_qc(self, qc: QuantumCircuit, shots: int):
+    def classical_to_quantum(qc: QuantumCircuit, op: SparsePauliOp):
+        """
+        Translate SparsePauliOp to measurable quantum circuit
+        """
 
-        trans_c = transpile(qc, backend=self.backend)
-        job = backend.run(trans_c, shots=shots)
-        result = job.result()
-        exp_result = job.result()._get_experiment(qc)
-        counts = result.get_counts()
+        def apply_basis_rotation(qc, pauli_string):
+            for i, p in enumerate(pauli_string):
+                if p == 'X':
+                    qc.h(i)
+                elif p == 'Y':
+                    qc.sdg(i)
+                    qc.h(i)
+        
+        groups = op.group_commuting()
 
-        return counts
+        circuits = []
+
+        for group in groups:
+            qc_copy = qc.copy()
+
+            for pauli in group.paulis:
+                apply_basis_rotation(qc_copy, pauli.to_label())
+
+            qc_copy.measure_all()
+            circuits.append((qc_copy, group))
+
+        return circuits
+        
+    def run_qc(self, qc: QuantumCircuit, op: SparsePauliOp):
+
+        # If the IQM hardware supports Estimator then do shortcut
+        try:
+            estimator = Estimator(backend=self.backend)
+            trans_c = transpile(qc, backend=self.backend)
+            job = estimator.run(
+                circuits=[trans_c],
+                observables=[op],
+                shots=self.shots
+            )
+        
+            result = job.result()
+            return result.values[0]
+
+        except Exception as e:
+            print("Estimator failed:", e)
+
+        # Else do it manually
+        circuits = self.classical_to_quantum(qc, op)
+        total = 0
+        for circuit in circuits:
+            c = circuit[0]
+            trans_c = transpile(c, backend=self.backend)
+            job = self.backend.run(trans_c, shots=self.shots)
+            result = job.result()
+            counts = result.get_counts()
+
+            pauli_group = circuit[1]
+            for pauli, coeff in zip(pauli_group.paulis, pauli_group.coeffs):
+                exp = 0
+                shots = sum(counts.values())
+                for bitstring, count in counts.items():
+                    parity = 1
+                    for i, p in enumerate(pauli):
+                        if p != 'I':
+                            bit = bitstring[-1 - i]
+                            if bit == '1':
+                                parity *= -1
+                    exp += parity * count / shots
+
+                total += coeff * exp
+
+        return total
+
 
     def calc_exp_val(self, qc: QuantumCircuit, op: SparsePauliOp):
         """
@@ -84,10 +157,12 @@ class QubitAdaptVQE():
             qc (QuntumCircuit): The state
             op (SparsePauliOp): The observable
         """
-        if self.classical:
+        if self.run_on_real_hw:
+            res = self.run_qc(qc, op)
+        else:
             estimator = self.estimator
             if isinstance(estimator, Estimator):
-                res = estimator.run(qc, op).result().values
+                res = estimator.run([qc], [op]).result().values
             elif isinstance(estimator, StatevectorEstimator):
                 res = estimator.run([(qc, op)]).result()[0].data.evs
             elif isinstance(estimator, BackendEstimatorV2):
@@ -95,8 +170,6 @@ class QubitAdaptVQE():
                 res = estimator.run([(qc, op)]).result()[0].data.evs
             else:
                 raise ValueError("Undefined estimator")
-        else:
-            res = self.run_qc(qc, self.shots)
 
         return res
 
