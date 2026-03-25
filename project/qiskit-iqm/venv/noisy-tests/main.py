@@ -10,8 +10,8 @@ if __name__ == "__main__":
 
     # Create molecule object
     mol = gto.Mole()
-    mol.atom = "He 0 0 0"#; H 0 0 2.0;"
-    mol.basis = "3-21g"
+    mol.atom = "H 0 0 0; H 0 0 2.0;"
+    mol.basis = "sto-3g"
     mol.spin = 0
     mol.build()
 
