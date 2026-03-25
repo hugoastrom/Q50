@@ -4,7 +4,7 @@ from iqm.qiskit_iqm import IQMProvider
 from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 
 # Qiskit packages
-from qiskit import QuantumCircuit, QuantumRegister, transpile
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.circuit.library import PauliEvolutionGate, StatePreparation
 from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV2
 from qiskit.quantum_info import SparsePauliOp, PauliList
@@ -82,25 +82,32 @@ class QubitAdaptVQE():
         """
 
         def apply_basis_rotation(qc, pauli_string):
-            for i, p in enumerate(pauli_string):
+            #for i, p in enumerate(pauli_string):
+            n = len(pauli_string)
+            for i in range(n):
+                p = pauli_string[n - 1 - i]
                 if p == 'X':
                     qc.h(i)
                 elif p == 'Y':
                     qc.sdg(i)
                     qc.h(i)
         
-        groups = op.group_commuting()
+        groups = op.group_commuting(qubit_wise=True)
 
         circuits = []
 
-        for group in groups:
+        #for group in groups:
+        for pauli, coeff in zip(op.paulis, op.coeffs):
             qc_copy = qc.copy()
 
-            rep = group.paulis[0].to_label()
-            apply_basis_rotation(qc_copy, rep)
+            #rep = group.paulis[0].to_label()
+            apply_basis_rotation(qc_copy, pauli.to_label())
 
-            qc_copy.measure_all()
-            circuits.append((qc_copy, group))
+            #qc_copy.measure_all()
+            creg = ClassicalRegister(self.nqubits)
+            qc_copy.add_register(creg)
+            qc_copy.measure(range(self.nqubits), range(self.nqubits))
+            circuits.append((qc_copy, pauli, coeff))
 
         return circuits
         
@@ -127,26 +134,29 @@ class QubitAdaptVQE():
         total = 0
         for circuit in circuits:
             c = circuit[0]
-            trans_c = transpile(c, backend=self.backend)
+            trans_c = transpile(c, backend=self.backend, optimization_level=0)
             job = self.backend.run(trans_c, shots=self.shots)
             result = job.result()
             counts = result.get_counts()
 
-            pauli_group = circuit[1]
+            pauli = circuit[1]
+            coeff = circuit[2]
             shots = sum(counts.values())
-            for pauli, coeff in zip(pauli_group.paulis, pauli_group.coeffs):
-                exp = 0
-                for bitstring, count in counts.items():
-                    parity = 1
-                    label = pauli.to_label()
-                    for i, p in enumerate(label):
-                        if p != 'I':
-                            bit = bitstring[-1 - i]
-                            if bit == '1':
-                                parity *= -1
-                    exp += parity * count / shots
-
-                total += coeff.real * exp
+            #for pauli, coeff in zip(paulis, coeffs):
+            exp = 0
+            label = pauli.to_label()
+            n = len(label)
+            for bitstring, count in counts.items():
+                bitstring = bitstring[::-1]
+                parity = 1
+                for i in range(n):
+                    p = label[n - 1 - i]
+                    if p != 'I':
+                        if bitstring[i] == '1':
+                            parity *= -1
+                exp += parity * count / shots
+                
+            total += coeff.real * exp
 
         return total
 

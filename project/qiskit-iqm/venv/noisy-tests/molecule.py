@@ -10,8 +10,8 @@ if __name__ == "__main__":
 
     # Create molecule object
     mol = gto.Mole()
-    mol.atom = "H 0 0 0; H 0 0 2.0;"
-    mol.basis = "sto-3g"
+    mol.atom = "He 0 0 0"#; H 0 0 2.0;"
+    mol.basis = "3-21g"
     mol.spin = 0
     mol.build()
 
@@ -33,7 +33,8 @@ if __name__ == "__main__":
     vqe = QubitAdaptVQE(occs, hnuc, h1, eri_mo, optimizer="cobyla")
 
     # Data for qubit-adapt-VQE
-    estimator = "statevector_estimator"
+    estimator = "backend_estimator"
+    #estimator = "statevector_estimator"
     vqe.set_backend(IQMFakeAdonis())
     vqe.set_estimator(estimator)
 
@@ -44,5 +45,5 @@ if __name__ == "__main__":
     cisolver = fci.FCI(mf)
     efci, fcivec = cisolver.kernel()
 
-    print('HF energy:            %.12f' %ehf)
     print('FCI reference energy: %.12f' %efci)
+    print('HF energy:            %.12f' %ehf)
