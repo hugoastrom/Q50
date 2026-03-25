@@ -35,8 +35,8 @@ if __name__ == "__main__":
     vqe = QubitAdaptVQE(adapt_mol, optimizer="cobyla")
 
     # Data for qubit-adapt-VQE
-    #estimator = "backend_estimator"
-    estimator = "statevector_estimator"
+    estimator = "backend_estimator"
+    #estimator = "statevector_estimator"
     vqe.set_backend(IQMFakeAdonis())
     vqe.set_estimator(estimator)
 

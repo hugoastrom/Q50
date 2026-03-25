@@ -5,6 +5,8 @@ import numpy as np
 # Qiskit
 from qiskit.quantum_info import SparsePauliOp
 
+from quantum_functions import qubit_mapping, identity
+
 class AdaptMolecule():
 
     def __init__(self, mo_occs, hnuc, h1e, h2e, cholesky = False):
@@ -55,29 +57,29 @@ class AdaptMolecule():
         """
 
         # List of fermionic creation and annihilation operators
-        #C, D = self.qubit_mapping(2 * self.norb, mapping="jordan_wigner")
+        C, D = qubit_mapping(2 * self.norb, mapping="jordan_wigner")
 
-        #Exc = []
-        #for p in range(self.norb):
-        #    Excp = [C[p] @ D[p] + C[self.norb + p] @ D[self.norb + p]]
-        #    for r in range(p + 1, self.norb):
-        #        Excp.append(
-        #            C[p] @ D[r]
-        #            + C[self.norb + p] @ D[self.norb + r]
-        #            + C[r] @ D[p]
-        #            + C[self.norb + r] @ D[self.norb + p]
-        #        )
-        #    Exc.append(Excp)
+        Exc = []
+        for p in range(self.norb):
+            Excp = [C[p] @ D[p] + C[self.norb + p] @ D[self.norb + p]]
+            for r in range(p + 1, self.norb):
+                Excp.append(
+                    C[p] @ D[r]
+                    + C[self.norb + p] @ D[self.norb + r]
+                    + C[r] @ D[p]
+                    + C[self.norb + r] @ D[self.norb + p]
+                )
+            Exc.append(Excp)
 
         # Core term
-        #H = 0.0 * self.identity(2 * self.norb)
+        H = 0.0 * identity(2 * self.norb)
         # Extra term due to reorganization of two-body Hamiltonian
-        #t1e = self.h1e - 0.5 * np.einsum("pxrx->pr", self.h2e)
+        t1e = self.h1e - 0.5 * np.einsum("pxrx->pr", self.h2e)
 
         # One-body term
-        #for p in range(self.norb):
-        #    for r in range(p, self.norb):
-        #        H += t1e[p, r] * Exc[p][r - p]
+        for p in range(self.norb):
+            for r in range(p, self.norb):
+                H += t1e[p, r] * Exc[p][r - p]
 
         # Two-body term
         if (self.use_cholesky):
@@ -86,7 +88,7 @@ class AdaptMolecule():
             Lop, ng = self.cholesky(1e-6)
 
             for g in range(ng):
-                Lg = 0 * self.identity(2 * self.norb)
+                Lg = 0 * identity(2 * self.norb)
                 for p in range(self.norb):
                     for r in range(p, self.norb):
                         Lg += Lop[p, r, g] * Exc[p][r - p]

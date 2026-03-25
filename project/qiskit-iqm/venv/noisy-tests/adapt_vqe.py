@@ -15,9 +15,11 @@ import numpy as np
 import cmath, os
 from scipy.optimize import minimize
 
+from quantum_functions import qubit_mapping
+
 class QubitAdaptVQE():
     
-    def __init__(self, mol, optimizer, shots = 1000, cholesky = False, conv_thr = 1e-6, run_on_real_hw = True):
+    def __init__(self, mol, optimizer, shots = 1000, conv_thr = 1e-6, run_on_real_hw = True):
         """
         Args:
             mo_occs (list): MO occupations
@@ -247,6 +249,7 @@ class QubitAdaptVQE():
         Generate operator pool
         """
 
+        """ TODO: Implement general operator pools """
         #if pool_type == 0:
         #    op_strings = ["ZY", "YI"]
         #    for q in range(2, self.nqubits):
@@ -262,19 +265,11 @@ class QubitAdaptVQE():
         #else:
         #    raise ValueError("Pool type not implemented")
 
-        #op_strings = ["XYXY"], "YYXX", "XYYX", "YXXY"]
-        #pool = [SparsePauliOp(op) for op in op_strings]
-        #norb = self.h1e.shape[0]
-        # List of fermionic creation and annihilation operators
-        #C, D = self.qubit_mapping(2 * norb, mapping="jordan_wigner")
-        #pool = [ C[2] @ C[3] @ D[0] @ D[1] - C[1] @ C[0] @ D[3] @ D[2] ]
-        #pool = [1.0j * ((C[1] @ D[0] + C[3] @ D[2]) - (C[0] @ D[1] + C[2] @ D[3])).chop().simplify(), 1.0j * (C[2] @ C[3] @ D[0] @ D[1] - C[1] @ C[0] @ D[3] @ D[2]).chop().simplify()]
-        #print(pool)
 
+        # So far only singles and doubles implemented
         norb = self.mol.get_norb()
         nspin = 2 * norb
-        C, D = self.qubit_mapping(nspin)
-        
+        C, D = qubit_mapping(nspin)
         pool = []
         
         # Singles
@@ -297,7 +292,7 @@ class QubitAdaptVQE():
 
     def state_prep(self):
         """
-        Initialize quantum circuit
+        Initialize quantum circuit for HF ansatz
         """
         qreg = QuantumRegister(self.nqubits)
         psi = QuantumCircuit(qreg)
@@ -306,37 +301,10 @@ class QubitAdaptVQE():
 
         return psi
 
-    # Should this funciton be moved? It might be needed by the AdaptMolecul class
-    def qubit_mapping(self, n, mapping = "jordan_wigner"):
-        """
-        Map bosonic operators to fermionic operators
-        args:
-            n (int): Number of qubits
-            mapping (str): Map bosons -> fermions
-        returs:
-            Lists of creation and annihilation operators
-        """
-
-        c_list = []
-        if mapping == "jordan_wigner":
-            for p in range(n):
-                z_string = "Z" * p
-                x_string = z_string + "X" + "I" * (n - p - 1)
-                y_string = z_string + "Y" + "I" * (n - p - 1)
-                cp = SparsePauliOp.from_list([
-                    (x_string, 0.5),
-                    (y_string, -0.5j)
-                ])
-                c_list.append(cp)
-        else:
-            raise ValueError("Unsupported mapping.")
-        d_list = [cp.adjoint() for cp in c_list]
-        return c_list, d_list
-
     def minimize_energy(self, maxiter):
 
         # Check for correct number of electrons
-        C, D = self.qubit_mapping(2 * self.mol.get_norb(), mapping="jordan_wigner")
+        C, D = qubit_mapping(2 * self.mol.get_norb(), mapping="jordan_wigner")
         N_op = sum(C[p] @ D[p] for p in range(self.nqubits))
         print("Number of electrons =", self.calc_exp_val(self.state_prep(), N_op))
         
