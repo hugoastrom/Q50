@@ -10,14 +10,15 @@ from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV
 from qiskit.quantum_info import SparsePauliOp, PauliList
 #from qiskit_ibm_runtime import Estimator
 
-# Python packages
+# Python standard packages
 import numpy as np
 import cmath, os
 from scipy.optimize import minimize
 
 class QubitAdaptVQE():
     
-    def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, shots = 1000, cholesky = False, conv_thr = 1e-6, run_on_real_hw = True):
+    #def __init__(self, mo_occs, hnuc, h1e, h2e, optimizer, shots = 1000, cholesky = False, conv_thr = 1e-6, run_on_real_hw = True):
+    def __init__(self, mol, optimizer, shots = 1000, cholesky = False, conv_thr = 1e-6, run_on_real_hw = True):
         """
         Args:
             mo_occs (list): MO occupations
@@ -25,25 +26,27 @@ class QubitAdaptVQE():
             h2e (np.ndarray): 2-electron integrals
             optimizer (string): Classical SciPy optimizer algorithm
         """
+
+        self.mol = mol
         
         # Read input
-        norb = h1e.shape[0]
+        #norb = h1e.shape[0]
         # Ansatz is an ON vector for 2 * norb spin orbitals
-        self.ansatz = []
-        for iocc, occ in enumerate(mo_occs):
-            if occ > 0:
-                self.ansatz.append(iocc)
-                if occ > 1:
-                    self.ansatz.append(iocc + norb)
+        self.ansatz = self.mol.get_ansatz()#[]
+        #for iocc, occ in enumerate(mo_occs):
+        #    if occ > 0:
+        #        self.ansatz.append(iocc)
+        #        if occ > 1:
+        #            self.ansatz.append(iocc + norb)
 
-        self.hnuc = hnuc
-        self.h1e = h1e
-        self.h2e = h2e
-        self.optimizer = optimizer
+        #self.hnuc = hnuc
+        #self.h1e = h1e
+        #self.h2e = h2e
         
         # Declare variables needed
+        self.optimizer = optimizer
         self.backend = None
-        self.use_cholesky = cholesky
+        #self.use_cholesky = cholesky
         self.conv_thr = conv_thr
         self.run_on_real_hw = run_on_real_hw
         self.shots = shots
@@ -57,7 +60,7 @@ class QubitAdaptVQE():
                 self.run_on_real_hw = False
 
         # Build Hamiltonian
-        self.hamiltonian = self.build_hamiltonian()
+        self.hamiltonian = self.mol.get_hamiltonian()#self.build_hamiltonian()
         self.nqubits = self.hamiltonian.num_qubits
         print("Number of qubits = %i\n" %self.nqubits)
 
@@ -237,7 +240,7 @@ class QubitAdaptVQE():
 
         e = self.calc_exp_val(psi, self.hamiltonian)
 
-        return e + self.hnuc
+        return e + self.mol.get_hnuc()#self.hnuc
 
     def optimize_params(self, args={"disp": True}):
         """
@@ -281,7 +284,7 @@ class QubitAdaptVQE():
         #pool = [1.0j * ((C[1] @ D[0] + C[3] @ D[2]) - (C[0] @ D[1] + C[2] @ D[3])).chop().simplify(), 1.0j * (C[2] @ C[3] @ D[0] @ D[1] - C[1] @ C[0] @ D[3] @ D[2]).chop().simplify()]
         #print(pool)
 
-        norb = self.h1e.shape[0]
+        norb = self.mol.get_norb()#self.h1e.shape[0]
         nspin = 2 * norb
         C, D = self.qubit_mapping(nspin)
         
@@ -316,51 +319,51 @@ class QubitAdaptVQE():
 
         return psi
 
-    def cholesky(self, eps: float):
-        """
-        Decompose two-body term in Hamiltonian to lower rank
-        args:
-            eps (float): Error threshold
-        returns:
-            Numpy array representing the low-rank decomposition of the Hamiltonian two-body term
-        """
+    #def cholesky(self, eps: float):
+    #    """
+    #    Decompose two-body term in Hamiltonian to lower rank
+    #    args:
+    #        eps (float): Error threshold
+    #    returns:
+    #        Numpy array representing the low-rank decomposition of the Hamiltonian two-body term
+    #    """
 
         # see https://arxiv.org/pdf/1711.02242.pdf section B2
         # see https://arxiv.org/abs/1808.02625
         # see https://arxiv.org/abs/2104.08957
-        no = self.h2e.shape[0]
-        chmax, ng = 20 * no, 0
-        W = self.h2e.reshape(no**2, no**2)
-        L = np.zeros((no**2, chmax))
-        Dmax = np.diagonal(W).copy()
-        nu_max = np.argmax(Dmax)
-        vmax = Dmax[nu_max]
-        while vmax > eps:
-            L[:, ng] = W[:, nu_max]
-            if ng > 0:
-                L[:, ng] -= np.dot(L[:, 0:ng], (L.T)[0:ng, nu_max])
-            L[:, ng] /= np.sqrt(vmax)
-            Dmax[: no**2] -= L[: no**2, ng] ** 2
-            ng += 1
-            nu_max = np.argmax(Dmax)
-            vmax = Dmax[nu_max]
-        L = L[:, :ng].reshape((no, no, ng))
-        print(
-            "accuracy of Cholesky decomposition ",
-            np.abs(np.einsum("prg,qsg->prqs", L, L) - self.h2e).max(),
-        )
-        return L, ng
+    #    no = self.h2e.shape[0]
+    #    chmax, ng = 20 * no, 0
+    #    W = self.h2e.reshape(no**2, no**2)
+    #    L = np.zeros((no**2, chmax))
+    #    Dmax = np.diagonal(W).copy()
+    #    nu_max = np.argmax(Dmax)
+    #    vmax = Dmax[nu_max]
+    #    while vmax > eps:
+    #        L[:, ng] = W[:, nu_max]
+    #        if ng > 0:
+    #            L[:, ng] -= np.dot(L[:, 0:ng], (L.T)[0:ng, nu_max])
+    #        L[:, ng] /= np.sqrt(vmax)
+    #        Dmax[: no**2] -= L[: no**2, ng] ** 2
+    #        ng += 1
+    #        nu_max = np.argmax(Dmax)
+    #        vmax = Dmax[nu_max]
+    #    L = L[:, :ng].reshape((no, no, ng))
+    #    print(
+    #        "accuracy of Cholesky decomposition ",
+    #        np.abs(np.einsum("prg,qsg->prqs", L, L) - self.h2e).max(),
+    #    )
+    #    return L, ng
 
-    def identity(self, n):
-        """
-        n-dimensional identity operator on the space of n qubits
-        args:
-            n (int): Number of qubits
-        returns:
-            SparsePauliOperator representing the identity operator
-        """
+    #def identity(self, n):
+    #    """
+    #    n-dimensional identity operator on the space of n qubits
+    #    args:
+    #        n (int): Number of qubits
+    #    returns:
+    #        SparsePauliOperator representing the identity operator
+    #    """
 
-        return SparsePauliOp.from_list([("I" * n, 1)])
+    #    return SparsePauliOp.from_list([("I" * n, 1)])
 
     def qubit_mapping(self, n, mapping = "jordan_wigner"):
         """
@@ -388,76 +391,76 @@ class QubitAdaptVQE():
         d_list = [cp.adjoint() for cp in c_list]
         return c_list, d_list
 
-    def build_hamiltonian(self) -> SparsePauliOp:
-        """
-        Map one- and two-electron integrals to quantum operators
+    #def build_hamiltonian(self) -> SparsePauliOp:
+    #    """
+    #    Map one- and two-electron integrals to quantum operators
 
-        returns:
-            Hamiltonian (SparsePauliOp)
-        """
+    #     returns:
+    #        Hamiltonian (SparsePauliOp)
+    #    """
 
-        # Get number of orbitals
-        norb = self.h1e.shape[0]
+    #    # Get number of orbitals
+    #    norb = self.h1e.shape[0]
 
-        # List of fermionic creation and annihilation operators
-        C, D = self.qubit_mapping(2 * norb, mapping="jordan_wigner")
+    #    # List of fermionic creation and annihilation operators
+    #    C, D = self.qubit_mapping(2 * norb, mapping="jordan_wigner")
 
-        Exc = []
-        for p in range(norb):
-            Excp = [C[p] @ D[p] + C[norb + p] @ D[norb + p]]
-            for r in range(p + 1, norb):
-                Excp.append(
-                    C[p] @ D[r]
-                    + C[norb + p] @ D[norb + r]
-                    + C[r] @ D[p]
-                    + C[norb + r] @ D[norb + p]
-                )
-            Exc.append(Excp)
+    #    Exc = []
+    #    for p in range(norb):
+    #        Excp = [C[p] @ D[p] + C[norb + p] @ D[norb + p]]
+    #        for r in range(p + 1, norb):
+    #            Excp.append(
+    #                C[p] @ D[r]
+    #                + C[norb + p] @ D[norb + r]
+    #                + C[r] @ D[p]
+    #                + C[norb + r] @ D[norb + p]
+    #            )
+    #        Exc.append(Excp)
 
         # Core term
-        H = 0.0 * self.identity(2 * norb)
-        # Extra term due to reorganization of two-body Hamiltonian
-        t1e = self.h1e - 0.5 * np.einsum("pxrx->pr", self.h2e)
+    #    H = 0.0 * self.identity(2 * norb)
+    #    # Extra term due to reorganization of two-body Hamiltonian
+    #    t1e = self.h1e - 0.5 * np.einsum("pxrx->pr", self.h2e)
 
         # One-body term
-        for p in range(norb):
-            for r in range(p, norb):
-                H += t1e[p, r] * Exc[p][r - p]
+    #    for p in range(norb):
+    #        for r in range(p, norb):
+    #            H += t1e[p, r] * Exc[p][r - p]
 
         # Two-body term
-        if (self.use_cholesky):
+    #    if (self.use_cholesky):
 
             # Low-rank decomposition of the Hamiltonian
-            Lop, ng = self.cholesky(1e-6)
+    #        Lop, ng = self.cholesky(1e-6)
 
-            for g in range(ng):
-                Lg = 0 * self.identity(2 * norb)
-                for p in range(norb):
-                    for r in range(p, norb):
-                        Lg += Lop[p, r, g] * Exc[p][r - p]
-                H += 0.5 * Lg @ Lg
-        else:
-            from qiskit_nature.second_q.hamiltonians import ElectronicEnergy
-            from qiskit_nature.second_q.mappers import JordanWignerMapper
+    #        for g in range(ng):
+    #            Lg = 0 * self.identityd(2 * norb)
+    #            for p in range(norb):
+    #                for r in range(p, norb):
+    #                    Lg += Lop[p, r, g] * Exc[p][r - p]
+    #            H += 0.5 * Lg @ Lg
+    #    else:
+    #        from qiskit_nature.second_q.hamiltonians import ElectronicEnergy
+    #        from qiskit_nature.second_q.mappers import JordanWignerMapper
             
             # build Hamiltonian
-            hamiltonian = ElectronicEnergy.from_raw_integrals(self.h1e, self.h2e)
+    #        hamiltonian = ElectronicEnergy.from_raw_integrals(self.h1e, self.h2e)
             
             # fermionic operator
-            fermionic_op = hamiltonian.second_q_op()
+    #        fermionic_op = hamiltonian.second_q_op()
             
             # map to qubits
-            mapper = JordanWignerMapper()
-            qubit_op = mapper.map(fermionic_op)
-            H = qubit_op
+    #        mapper = JordanWignerMapper()
+    #        qubit_op = mapper.map(fermionic_op)
+    #        H = qubit_op
 
-        return H.chop().simplify()
+    #    return H.chop().simplify()
 
     def minimize_energy(self, maxiter):
 
         # Check for correct number of electrons
-        norb = self.h1e.shape[0]
-        C, D = self.qubit_mapping(2 * norb, mapping="jordan_wigner")
+        #norb = self.h1e.shape[0]
+        C, D = self.qubit_mapping(2 * self.mol.get_norb(), mapping="jordan_wigner")
         N_op = sum(C[p] @ D[p] for p in range(self.nqubits))
         print("Number of electrons =", self.calc_exp_val(self.state_prep(), N_op))
         
@@ -492,7 +495,6 @@ class QubitAdaptVQE():
                 second_order = []
                 for operator in self.operator_pool:
                     second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
-                print(second_order)
                 if all(two_der >= 0.0 for two_der in second_order):
                     print("Minimum found")
                     break
@@ -510,7 +512,7 @@ class QubitAdaptVQE():
             self.paramstring.append(0.0)
             print("\nAppended operator is:\n", self.appended_ops[-1], "\nwith gradient:", grad)
 
-            # Calculate norm of parameter vector
+            # Reoptimize parameters
             print("\nOptimizing parameters...")
             self.paramstring = list(self.optimize_params())
 
@@ -531,5 +533,4 @@ class QubitAdaptVQE():
 
             e_last = e
 
-            iteration += 1
         print("\nFinal energy:         %.12f" %self.energy(self.paramstring))
