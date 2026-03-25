@@ -54,7 +54,7 @@ class QubitAdaptVQE():
                 self.backend = provider.get_backend()
             except:
                 print("\nNo quantum environment found! Doing classical.")
-                #self.run_on_real_hw = False
+                self.run_on_real_hw = False
 
         # Build Hamiltonian
         self.hamiltonian = self.build_hamiltonian()
@@ -196,8 +196,10 @@ class QubitAdaptVQE():
             self.estimator = self.estimator_dict(estimator)
         except KeyError:
             print("Estimator not implemented")
-        if estimator == "backend_estimator" and self.backend == None:
-            raise ValueError("Set backend!")
+        if estimator == "backend_estimator":
+            if self.backend == None:
+                raise ValueError("Set backend!")
+            self.run_on_real_hw = True
 
         return
 
