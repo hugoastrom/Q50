@@ -19,7 +19,7 @@ from quantum_functions import qubit_mapping
 
 class QubitAdaptVQE():
     
-    def __init__(self, mol, optimizer, shots = 1000, conv_thr = 1e-6, run_on_real_hw = True):
+    def __init__(self, mol, optimizer, shots = 10000, conv_thr = 1e-6):
         """
         Args:
             mo_occs (list): MO occupations
@@ -37,16 +37,15 @@ class QubitAdaptVQE():
         self.optimizer = optimizer
         self.backend = None
         self.conv_thr = conv_thr
-        self.run_on_real_hw = run_on_real_hw
+        self.run_on_real_hw = True
         self.shots = shots
-        if run_on_real_hw:
-            try:
-                HELMI_CORTEX_URL = os.getenv('HELMI_CORTEX_URL')
-                provider = IQMProvider(HELMI_CORTEX_URL)
-                self.backend = provider.get_backend()
-            except:
-                print("\nNo quantum environment found! Doing classical.")
-                self.run_on_real_hw = False
+        try:
+            HELMI_CORTEX_URL = os.getenv('HELMI_CORTEX_URL')
+            provider = IQMProvider(HELMI_CORTEX_URL)
+            self.backend = provider.get_backend()
+        except:
+            print("\nNo quantum environment found! Doing classical.")
+            self.run_on_real_hw = False
 
         # Get Hamiltonian
         self.hamiltonian = self.mol.get_hamiltonian()
@@ -227,9 +226,13 @@ class QubitAdaptVQE():
             evolution = PauliEvolutionGate(op, time=theta)
             psi.compose(evolution, inplace=True)
 
-        e = self.calc_exp_val(psi, self.hamiltonian)
+        values = []
+        for _ in range(3):
+            values.append(self.calc_exp_val(psi, self.hamiltonian))
+            #e = self.calc_exp_val(psi, self.hamiltonian)
 
-        return e + self.mol.get_hnuc()
+        #return e + self.mol.get_hnuc()
+        return np.mean(values) + self.mol.get_hnuc()
 
     def optimize_params(self, args={"disp": True}):
         """
@@ -301,6 +304,41 @@ class QubitAdaptVQE():
 
         return psi
 
+    def select_operator(self):
+        """
+        Select operator with largest gradient
+        """
+
+        # List for commutators
+        comm_lst = []
+
+        # Compute commutators between the Hamiltonian and the operators in the pool
+        for operator in self.operator_pool:
+            comm_val = self.commutator(self.hamiltonian, operator)
+            comm_lst.append(np.real_if_close(comm_val))
+
+            # Check for saddle point
+            if all(abs(comm) < 1e-8 for comm in comm_lst):
+                print("\nAll gradients are zero, doing second derivatives")
+                second_order = []
+                for operator in self.operator_pool:
+                    second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
+                if all(two_der >= 0.0 for two_der in second_order):
+                    print("Minimum found")
+                    break
+                else:
+                    print("Saddle point, doing second order optimization")
+
+                # Find operator with largest energy decrease and apply
+                idx = np.argmax(np.abs(second_order))
+                grad = second_order[idx]
+            else:
+                idx = np.argmax(np.abs(comm_lst))
+                grad = comm_lst[idx]
+
+        return self.operator_pool[idx], grad
+
+    
     def minimize_energy(self, maxiter):
 
         # Check for correct number of electrons
@@ -324,41 +362,23 @@ class QubitAdaptVQE():
         for iteration in range(1, maxiter + 1):
 
             print("          Iteration %i\n" %iteration)
-            
-            # List for commutators
-            comm_lst = []
 
-            # Compute commutators between the Hamiltonian and the operators in the pool
-            for operator in self.operator_pool:
-                comm_val = self.commutator(self.hamiltonian, operator)
-                comm_lst.append(np.real_if_close(comm_val))
-
-            # Check for saddle point
-            if all(abs(comm) < 1e-8 for comm in comm_lst):
-                print("\nAll gradients are zero, doing second derivatives")
-                second_order = []
-                for operator in self.operator_pool:
-                    second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
-                if all(two_der >= 0.0 for two_der in second_order):
-                    print("Minimum found")
-                    break
-                else:
-                    print("Saddle point, doing second order optimization")
-
-                # Find operator with largest energy decrease and apply
-                idx = np.argmax(np.abs(second_order))
-                grad = second_order[idx]
-                self.appended_ops.append(self.operator_pool[idx])
-            else:
-                idx = np.argmax(np.abs(comm_lst))
-                grad = comm_lst[idx]
-                self.appended_ops.append(self.operator_pool[idx])
+            operator, grad = self.select_operator()
+            self.appended_ops.append(operator)
             self.paramstring.append(0.0)
             print("\nAppended operator is:\n", self.appended_ops[-1], "\nwith gradient:", grad)
 
             # Reoptimize parameters
             print("\nOptimizing parameters...")
-            self.paramstring = list(self.optimize_params())
+            if iteration == 1:
+                print("First iteration: doing grid search")
+                thetas = np.linspace(-0.2, 0.2, 21)
+                energies = [self.energy([t]) for t in thetas]
+                best_theta = thetas[np.argmin(energies)]
+                print("   optimal parameter is %.5f" %best_theta)
+                self.paramstring.append(best_theta)
+            else:
+                self.paramstring = list(self.optimize_params())
 
             # Measure energy
             e = self.energy(self.paramstring)

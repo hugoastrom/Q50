@@ -17,9 +17,8 @@ class AdaptMolecule():
             h2e (np.ndarray): 2-electron integrals
         """
 
-        """ Read input """
-        self.norb = h1e.shape[0]
         # Ansatz is an ON vector for 2 * norb spin orbitals
+        self.norb = h1e.shape[0]
         self.ansatz = []
         for iocc, occ in enumerate(mo_occs):
             if occ > 0:
@@ -29,7 +28,6 @@ class AdaptMolecule():
         self.hnuc = hnuc
         self.h1e = h1e
         self.h2e = h2e
-
         
         # Build Hamiltonian
         self.use_cholesky = cholesky

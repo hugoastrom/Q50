@@ -3,17 +3,33 @@ from adapt_molecule import AdaptMolecule
 from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 
 import numpy as np
-import cmath
+import argparse
 
 from pyscf import ao2mo, gto, mcscf, scf, fci
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("molecule", type = str, help = "molecule in .xyz format, e.g. 'H 0.0 0.0 0.0; H 1.35 0.0 0.0'")
+    parser.add_argument("basis", type = str, help = "basis set")
+    parser.add_argument("spin", type = int, help = "spin of system")
+    parser.add_argument("optimizer", type = str, help = "SciPy optimizer")
+    parser.add_argument("estimator", type = str, help = "quantum simulator: statevector_estimator for noiseless simulation, backend_estimator for (real) noisy simulation")
+
+    args = parser.parse_args()
+
+    molecule = args.molecule
+    basis = args.basis
+    spin = args.spin
+    optimizer = args.optimizer
+    estimator = args.estimator
+    
     # Create PySCF molecule object
     mol = gto.Mole()
-    mol.atom = "H 0 0 0; H 0 0 2.0;"
-    mol.basis = "sto-3g"
-    mol.spin = 0
+    mol.atom = molecule
+    mol.basis = basis
+    mol.spin = spin
     mol.build()
 
     # Run PySCF RHF calculation
@@ -32,11 +48,10 @@ if __name__ == "__main__":
 
     # Create qubit-adapt-VQE object
     adapt_mol = AdaptMolecule(occs, hnuc, h1, eri_mo)
-    vqe = QubitAdaptVQE(adapt_mol, optimizer="cobyla")
+    vqe = QubitAdaptVQE(adapt_mol, optimizer=optimizer)
 
     # Data for qubit-adapt-VQE
-    estimator = "backend_estimator"
-    #estimator = "statevector_estimator"
+    estimator = estimator
     vqe.set_backend(IQMFakeAdonis())
     vqe.set_estimator(estimator)
 
