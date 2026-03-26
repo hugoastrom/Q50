@@ -40,8 +40,12 @@ class QubitAdaptVQE():
         self.run_on_real_hw = True
         self.shots = shots
         try:
-            HELMI_CORTEX_URL = os.getenv('HELMI_CORTEX_URL')
-            provider = IQMProvider(HELMI_CORTEX_URL)
+            DEVICE_CORTEX_URL = os.getenv('Q50_CORTEX_URL')
+            provider = IQMProvider(DEVICE_CORTEX_URL, quantum_computer="q50")
+            if not DEVICE_CORTEX_URL:
+                DEVICE_CORTEX_URL = os.getenv('HELMI_CORTEX_URL')
+                provider = IQMProvider(HELMI_CORTEX_URL)
+
             self.backend = provider.get_backend()
         except:
             print("\nNo quantum environment found! Doing classical.")
