@@ -19,7 +19,7 @@ from quantum_functions import qubit_mapping
 
 class QubitAdaptVQE():
     
-    def __init__(self, mol, optimizer, shots = 10000, conv_thr = 1e-6):
+    def __init__(self, mol, optimizer, shots = 5000, conv_thr = 1e-6):
         """
         Args:
             mo_occs (list): MO occupations
@@ -41,6 +41,7 @@ class QubitAdaptVQE():
         self.shots = shots
         try:
             DEVICE_CORTEX_URL = os.getenv('Q50_CORTEX_URL')
+            print(DEVICE_CORTEX_URL)
             provider = IQMProvider(DEVICE_CORTEX_URL, quantum_computer="q50")
             if not DEVICE_CORTEX_URL:
                 DEVICE_CORTEX_URL = os.getenv('HELMI_CORTEX_URL')
