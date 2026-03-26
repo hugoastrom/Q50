@@ -6,7 +6,7 @@ from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 # Qiskit packages
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.circuit.library import PauliEvolutionGate, StatePreparation
-from qiskit.primitives import Estimator, StatevectorEstimator, BackendEstimatorV2
+from qiskit.primitives import StatevectorEstimator, BackendEstimatorV2#, Estimator
 from qiskit.quantum_info import SparsePauliOp, PauliList
 #from qiskit_ibm_runtime import Estimator
 
@@ -63,8 +63,11 @@ class QubitAdaptVQE():
         self.paramstring = []
 
     def estimator_dict(self, estimator):
-        d = {"estimator": Estimator(),
-             "backend_estimator": BackendEstimatorV2(backend = self.backend),
+        #d = {"estimator": Estimator(),
+        #     "backend_estimator": BackendEstimatorV2(backend = self.backend),
+        #     "statevector_estimator": StatevectorEstimator()
+        #}
+        d = {"backend_estimator": BackendEstimatorV2(backend = self.backend),
              "statevector_estimator": StatevectorEstimator()
              }
         return d[estimator]
@@ -168,9 +171,10 @@ class QubitAdaptVQE():
             res = self.run_qc(qc, op)
         else:
             estimator = self.estimator
-            if isinstance(estimator, Estimator):
-                res = estimator.run([qc], [op]).result().values
-            elif isinstance(estimator, StatevectorEstimator):
+            #if isinstance(estimator, Estimator):
+            #    res = estimator.run([qc], [op]).result().values
+            #elif isinstance(estimator, StatevectorEstimator):
+            if isinstance(estimator, StatevectorEstimator):
                 res = estimator.run([(qc, op)]).result()[0].data.evs
             elif isinstance(estimator, BackendEstimatorV2):
                 qc = transpile(qc, backend=self.backend)
