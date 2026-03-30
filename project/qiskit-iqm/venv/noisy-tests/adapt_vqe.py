@@ -166,7 +166,7 @@ class QubitAdaptVQE():
             estimator = BackendEstimatorV2(backend=self.backend)
             qc = transpile(qc, backend=self.backend)
             op_mapped = op.apply_layout(qc.layout)
-            res = estimator.run([(qc, op_mappedy)]).result()[0].data.evs
+            res = estimator.run([(qc, op_mapped)]).result()[0].data.evs
             #res = self.run_qc(qc, op)
         else:
             estimator = self.estimator
