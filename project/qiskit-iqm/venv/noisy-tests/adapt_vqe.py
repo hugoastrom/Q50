@@ -8,6 +8,7 @@ from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.circuit.library import PauliEvolutionGate, StatePreparation
 from qiskit.primitives import StatevectorEstimator, BackendEstimatorV2#, Estimator
 from qiskit.quantum_info import SparsePauliOp, PauliList
+from qiskit.synthesis import LieTrotter
 #from qiskit_ibm_runtime import Estimator
 
 # Python standard packages
@@ -39,17 +40,19 @@ class QubitAdaptVQE():
         self.conv_thr = conv_thr
         self.run_on_real_hw = True
         self.shots = shots
+        self.converged = False
         try:
             DEVICE_CORTEX_URL = os.getenv('Q50_CORTEX_URL')
-            print(DEVICE_CORTEX_URL)
             provider = IQMProvider(DEVICE_CORTEX_URL, quantum_computer="q50")
             if not DEVICE_CORTEX_URL:
                 DEVICE_CORTEX_URL = os.getenv('HELMI_CORTEX_URL')
                 provider = IQMProvider(HELMI_CORTEX_URL)
 
             self.backend = provider.get_backend()
+            print("Running on device", DEVICE_CORTEX_URL)
         except:
-            print("\nNo quantum environment found! Doing classical.")
+            print("\nNo quantum environment found! Doing classical simulation instead.")
+            self.backend = IQMFakeAdonis()
             self.run_on_real_hw = False
 
         # Get Hamiltonian
@@ -81,17 +84,21 @@ class QubitAdaptVQE():
         """
 
         def apply_basis_rotation(qc, pauli_string):
+            """ Rotate to measurement basis """
+            
             #for i, p in enumerate(pauli_string):
             n = len(pauli_string)
-            for i in range(n):
-                p = pauli_string[n - 1 - i]
+            #for i in range(n):
+            for i, p in enumerate(pauli_string):
+                #p = pauli_string[n - 1 - i]
                 if p == 'X':
                     qc.h(i)
                 elif p == 'Y':
                     qc.sdg(i)
                     qc.h(i)
-        
-        groups = op.group_commuting(qubit_wise=True)
+            return
+
+        #groups = op.group_commuting(qubit_wise=True)
 
         circuits = []
 
@@ -102,38 +109,25 @@ class QubitAdaptVQE():
             #rep = group.paulis[0].to_label()
             apply_basis_rotation(qc_copy, pauli.to_label())
 
-            #qc_copy.measure_all()
+            # Add measurements
             creg = ClassicalRegister(self.nqubits)
             qc_copy.add_register(creg)
-            qc_copy.measure(range(self.nqubits), range(self.nqubits))
+            for i in range(self.nqubits):
+                qc_copy.measure(i, i)
             circuits.append((qc_copy, pauli, coeff))
 
         return circuits
         
     def run_qc(self, qc: QuantumCircuit, op: SparsePauliOp):
+        """ Run QuantumCircuit """
 
-        # If the IQM hardware supports Estimator then do shortcut
-        #try:
-        #    estimator = Estimator(backend=self.backend)
-        #    trans_c = transpile(qc, backend=self.backend)
-        #    job = estimator.run(
-        #        circuits=[trans_c],
-        #        observables=[op],
-        #        shots=self.shots
-        #    )
-        
-        #    result = job.result()
-        #    return result.values[0]
-
-        #except Exception as e:
-        #    print("Estimator failed:", e)
-
-        # Else do it manually
         circuits = self.classical_to_quantum(qc, op)
         total = 0
         for circuit in circuits:
             c = circuit[0]
-            trans_c = transpile(c, backend=self.backend, optimization_level=0)
+            #print(c.draw(fold=-1))
+            trans_c = transpile(c, backend=self.backend, optimization_level=0, initial_layout=list(range(self.nqubits)))
+            #print(trans_c.draw(fold=-1))
             job = self.backend.run(trans_c, shots=self.shots)
             result = job.result()
             counts = result.get_counts()
@@ -146,11 +140,12 @@ class QubitAdaptVQE():
             label = pauli.to_label()
             n = len(label)
             for bitstring, count in counts.items():
-                bitstring = bitstring[::-1]
+                #bitstring = bitstring[::-1]
                 parity = 1
                 for i in range(n):
-                    p = label[n - 1 - i]
-                    if p != 'I':
+                    #p = label[n - 1 - i]
+                    #if p != 'I':
+                    if label[i] != "I":
                         if bitstring[i] == '1':
                             parity *= -1
                 exp += parity * count / shots
@@ -173,7 +168,6 @@ class QubitAdaptVQE():
             estimator = self.estimator
             #if isinstance(estimator, Estimator):
             #    res = estimator.run([qc], [op]).result().values
-            #elif isinstance(estimator, StatevectorEstimator):
             if isinstance(estimator, StatevectorEstimator):
                 res = estimator.run([(qc, op)]).result()[0].data.evs
             elif isinstance(estimator, BackendEstimatorV2):
@@ -214,8 +208,9 @@ class QubitAdaptVQE():
         # Prepare quantum state
         psi = self.state_prep()
         for op, theta in zip(self.appended_ops, self.paramstring):
-            evolution = PauliEvolutionGate(op, time=theta)
+            evolution = PauliEvolutionGate(op, time=theta, synthesis=LieTrotter(reps=1))
             psi.compose(evolution, inplace=True)
+            psi = psi.decompose(reps=10)
 
         operator = a @ b - b @ a
         # The derivative of the energy with respect to parameters yields a complex phase
@@ -232,8 +227,9 @@ class QubitAdaptVQE():
         psi = self.state_prep()
         # Need to declare the parameters explicitly for SciPy optimization routine
         for op, theta in zip(self.appended_ops, params):
-            evolution = PauliEvolutionGate(op, time=theta)
+            evolution = PauliEvolutionGate(op, time=theta, synthesis=LieTrotter(reps=1))
             psi.compose(evolution, inplace=True)
+            psi = psi.decompose(reps=10)
 
         values = []
         for _ in range(3):
@@ -315,41 +311,41 @@ class QubitAdaptVQE():
 
     def select_operator(self):
         """
-        Select operator with largest gradient
+        Select operator with largest absolute gradient
         """
-
-        # List for commutators
-        comm_lst = []
 
         # Compute commutators between the Hamiltonian and the operators in the pool
         for operator in self.operator_pool:
             comm_val = self.commutator(self.hamiltonian, operator)
-            comm_lst.append(np.real_if_close(comm_val))
+            self.comm_lst.append(np.real_if_close(comm_val))
 
-            # Check for saddle point
-            if all(abs(comm) < 1e-8 for comm in comm_lst):
-                print("\nAll gradients are zero, doing second derivatives")
-                second_order = []
-                for operator in self.operator_pool:
-                    second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
-                if all(two_der >= 0.0 for two_der in second_order):
-                    print("Minimum found")
-                    break
-                else:
-                    print("Saddle point, doing second order optimization")
-
-                # Find operator with largest energy decrease and apply
-                idx = np.argmax(np.abs(second_order))
-                grad = second_order[idx]
+        # Check for saddle point
+        if all(abs(comm) < 1e-8 for comm in self.comm_lst):
+            print("\nAll gradients are zero, doing second derivatives")
+            second_order = []
+            for operator in self.operator_pool:
+                second_order.append(float(self.commutator(-1.0j * operator, self.hamiltonian @ operator - operator @ self.hamiltonian)))
+            if all(two_der >= 0.0 for two_der in second_order):
+                print("Minimum found")
+                self.converged = True
+                return None, None
             else:
-                idx = np.argmax(np.abs(comm_lst))
-                grad = comm_lst[idx]
+                print("Saddle point, doing second order optimization")
+
+            # Find operator with largest energy decrease and apply
+            idx = np.argmax(np.abs(second_order))
+            grad = second_order[idx]
+        else:
+            idx = np.argmax(np.abs(self.comm_lst))
+            grad = self.comm_lst[idx]
 
         return self.operator_pool[idx], grad
 
     
     def minimize_energy(self, maxiter):
 
+        #exit()
+        print(self.calc_exp_val(self.state_prep(), SparsePauliOp("ZZZZ")))
         # Check for correct number of electrons
         C, D = qubit_mapping(2 * self.mol.get_norb(), mapping="jordan_wigner")
         N_op = sum(C[p] @ D[p] for p in range(self.nqubits))
@@ -372,8 +368,27 @@ class QubitAdaptVQE():
 
             print("          Iteration %i\n" %iteration)
 
-            operator, grad = self.select_operator()
+            # List for commutators
+            self.comm_lst = []
+
+            # Evaluate commutators and select operator with largest absoulute gradient
+            #operator, grad = self.select_operator()
+            operator = SparsePauliOp(['YXYY', 'YYYX', 'YXXX', 'YYXY', 'XXYX', 'XYYY', 'XXXY', 'XYXX'],
+                                     coeffs=[-0.125+0.j, -0.125+0.j, -0.125+0.j,  0.125+0.j, -0.125+0.j,  0.125+0.j,
+                                             0.125+0.j,  0.125+0.j])
+            grad = 0.0
             self.appended_ops.append(operator)
+
+            # Converged?
+            if iteration > 1:
+                grad_norm = np.sqrt(sum([comm ** 2 for comm in self.comm_lst]))
+                print("Gradient norm = %.10f" %grad_norm)
+                if grad_norm < self.conv_thr:
+                    self.converged = True
+
+            if self.converged:
+                break
+
             self.paramstring.append(0.0)
             print("\nAppended operator is:\n", self.appended_ops[-1], "\nwith gradient:", grad)
 
@@ -382,7 +397,9 @@ class QubitAdaptVQE():
             if iteration == 1:
                 print("First iteration: doing grid search")
                 thetas = np.linspace(-0.2, 0.2, 21)
-                energies = [self.energy([t]) for t in thetas]
+                energies = [float(self.energy([float(t)])) for t in thetas]
+                print(energies)
+                break
                 best_theta = thetas[np.argmin(energies)]
                 print("   optimal parameter is %.5f" %best_theta)
                 self.paramstring.append(best_theta)
@@ -396,12 +413,6 @@ class QubitAdaptVQE():
             e_diff = e - e_last
             print("Ediff = %.12f" %e_diff)
 
-            # Converged?
-            if iteration > 1:
-                grad_norm = np.sqrt(sum([comm ** 2 for comm in comm_lst]))
-                print("Gradient norm = %.10f" %grad_norm)
-                if grad_norm < self.conv_thr:
-                    break
             print("\n")
 
             e_last = e

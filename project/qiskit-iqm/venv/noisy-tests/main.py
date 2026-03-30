@@ -1,6 +1,5 @@
 from adapt_vqe import QubitAdaptVQE
 from adapt_molecule import AdaptMolecule
-from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
 
 import numpy as np
 import argparse
@@ -52,7 +51,6 @@ if __name__ == "__main__":
 
     # Data for qubit-adapt-VQE
     estimator = estimator
-    vqe.set_backend(IQMFakeAdonis())
     vqe.set_estimator(estimator)
 
     # Run qubit-adapt-VQE
