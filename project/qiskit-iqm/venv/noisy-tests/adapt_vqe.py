@@ -163,7 +163,11 @@ class QubitAdaptVQE():
             op (SparsePauliOp): The observable
         """
         if self.run_on_real_hw:
-            res = self.run_qc(qc, op)
+            estimator = BackendEstimatorV2(backend=self.backend)
+            qc = transpile(qc, backend=self.backend)
+            op_mapped = op.apply_layout(qc.layout)
+            res = estimator.run([(qc, op_mappedy)]).result()[0].data.evs
+            #res = self.run_qc(qc, op)
         else:
             estimator = self.estimator
             #if isinstance(estimator, Estimator):
