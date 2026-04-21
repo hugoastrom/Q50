@@ -1,4 +1,4 @@
-The following librarier and versions should work:
+The following libraries and versions should work:
 qiskit             1.2.4
 qiskit-aer         0.15.1
 qiskit-algorithms  0.4.0
