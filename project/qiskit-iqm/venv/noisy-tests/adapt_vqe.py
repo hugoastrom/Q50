@@ -79,17 +79,15 @@ class QubitAdaptVQE():
     def set_backend(self, backend):
         self.backend = backend
 
-    def classical_to_quantum(self, qc: QuantumCircuit, op: SparsePauliOp):
+    def map_to_iqm_circuit(self, qc: QuantumCircuit, op: SparsePauliOp):
         """
         Translate SparsePauliOp to measurable quantum circuit
         """
 
         def apply_basis_rotation(qc, pauli_string):
             """ Rotate to measurement basis """
-            
-            #for i, p in enumerate(pauli_string):
+
             n = len(pauli_string)
-            #for i in range(n):
             for i, p in enumerate(pauli_string):
                 #p = pauli_string[n - 1 - i]
                 if p == 'X':
@@ -118,11 +116,11 @@ class QubitAdaptVQE():
             circuits.append((qc_copy, pauli, coeff))
 
         return circuits
-        
+
     def run_qc(self, qc: QuantumCircuit, op: SparsePauliOp):
         """ Run QuantumCircuit """
 
-        circuits = self.classical_to_quantum(qc, op)
+        circuits = self.map_to_iqm_circuit(qc, op)
         total = 0
         for circuit in circuits:
             c = circuit[0]
@@ -136,7 +134,6 @@ class QubitAdaptVQE():
             pauli = circuit[1]
             coeff = circuit[2]
             shots = sum(counts.values())
-            #for pauli, coeff in zip(paulis, coeffs):
             exp = 0
             label = pauli.to_label()
             n = len(label)
@@ -164,11 +161,16 @@ class QubitAdaptVQE():
             op (SparsePauliOp): The observable
         """
         if self.run_on_real_hw:
-            estimator = BackendEstimatorV2(backend=self.backend)
-            qc = transpile(qc, backend=self.backend)
-            op_mapped = op.apply_layout(qc.layout)
-            res = estimator.run([(qc, op_mapped)]).result()[0].data.evs
-            #res = self.run_qc(qc, op)
+            #estimator = BackendEstimatorV2(backend=self.backend)
+            #qc = transpile(
+            #    qc,
+            #    backend=self.backend,
+            #    initial_layout=list(range(self.nqubits)),
+            #    layout_method="trivial"
+            #)
+            #op_mapped = op.apply_layout(qc.layout)
+            #res = estimator.run([(qc, op_mapped)]).result()[0].data.evs
+            res = self.run_qc(qc, op)
         else:
             estimator = self.estimator
             #if isinstance(estimator, Estimator):
@@ -348,13 +350,23 @@ class QubitAdaptVQE():
 
     
     def minimize_energy(self, maxiter):
+        
 
-        #exit()
+        print("-----Sanity checks-----")
         print(self.calc_exp_val(self.state_prep(), SparsePauliOp("ZZZZ")))
         # Check for correct number of electrons
         C, D = qubit_mapping(2 * self.mol.get_norb(), mapping="jordan_wigner")
         N_op = sum(C[p] @ D[p] for p in range(self.nqubits))
         print("Number of electrons =", self.calc_exp_val(self.state_prep(), N_op))
+        operator = SparsePauliOp("IIII")#SparsePauliOp(['YXYY', 'YYYX', 'YXXX', 'YYXY', 'XXYX', 'XYYY', 'XXXY', 'XYXX'],coeffs=[-0.125+0.j, -0.125+0.j, -0.125+0.j,  0.125+0.j, -0.125+0.j,  0.125+0.j,0.125+0.j,  0.125+0.j])
+        #for theta in [0.0, 0.1, 0.2]:
+        #    psi = self.state_prep()
+        #    evolution = PauliEvolutionGate(operator, time=theta, synthesis=LieTrotter(reps=1))
+        #    psi.compose(evolution, inplace=True)
+        #    
+        #    val = self.calc_exp_val(psi, SparsePauliOp("ZZZZ"))
+        #    print(theta, val)
+        print("_______________________")
         
         # Data for adapt-VQE iterations
         e_last = self.energy(self.paramstring)
@@ -377,11 +389,10 @@ class QubitAdaptVQE():
             self.comm_lst = []
 
             # Evaluate commutators and select operator with largest absoulute gradient
-            #operator, grad = self.select_operator()
-            operator = SparsePauliOp(['YXYY', 'YYYX', 'YXXX', 'YYXY', 'XXYX', 'XYYY', 'XXXY', 'XYXX'],
-                                     coeffs=[-0.125+0.j, -0.125+0.j, -0.125+0.j,  0.125+0.j, -0.125+0.j,  0.125+0.j,
-                                             0.125+0.j,  0.125+0.j])
-            grad = 0.0
+            operator, grad = self.select_operator()
+            #operator = SparsePauliOp(['YXYY', 'YYYX', 'YXXX', 'YYXY', 'XXYX', 'XYYY', 'XXXY', 'XYXX'],
+            #                         coeffs=[-0.125+0.j, -0.125+0.j, -0.125+0.j,  0.125+0.j, -0.125+0.j,  0.125+0.j,
+            #                                 0.125+0.j,  0.125+0.j])
             self.appended_ops.append(operator)
 
             # Converged?
@@ -403,8 +414,6 @@ class QubitAdaptVQE():
                 print("First iteration: doing grid search")
                 thetas = np.linspace(-0.2, 0.2, 21)
                 energies = [float(self.energy([float(t)])) for t in thetas]
-                print(energies)
-                break
                 best_theta = thetas[np.argmin(energies)]
                 print("   optimal parameter is %.5f" %best_theta)
                 self.paramstring.append(best_theta)
