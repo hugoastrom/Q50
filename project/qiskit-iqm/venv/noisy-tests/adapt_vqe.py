@@ -1,7 +1,7 @@
 
 # Qiskit IQM packages
 from iqm.qiskit_iqm import IQMProvider
-from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis
+from iqm.qiskit_iqm.fake_backends import IQMFakeAdonis, IQMFakeAphrodite
 
 # Qiskit packages
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
@@ -52,7 +52,8 @@ class QubitAdaptVQE():
             print("Running on device", DEVICE_CORTEX_URL)
         except:
             print("\nNo quantum environment found! Doing classical simulation instead.")
-            self.backend = IQMFakeAdonis()
+            #self.backend = IQMFakeAdonis()
+            self.backend = IQMFakeAphrodite()
             self.run_on_real_hw = False
 
         # Get Hamiltonian
