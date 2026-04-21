@@ -1,0 +1,15 @@
+The following librarier and versions should work:
+qiskit             1.2.4
+qiskit-aer         0.15.1
+qiskit-algorithms  0.4.0
+qiskit-iqm         18.0
+qiskit-nature      0.7.2
+
+but the evolved_operator_ansatz in qiskit.circuits.library can cause problems.
+It works it evolved_operator_ansatz.py is copied to qiskit/circuit/library/ from qiskit/circuit/library/n_local
+
+TODO:
+Translate to IQM's real hardware
+Implement FCI (now only CISD)
+Minimize dependencies
+Optimize
