@@ -364,6 +364,12 @@ class QubitAdaptVQE():
         
         print("_______________________")
         print("-----Sanity checks-----\n")
+        iiiz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("IIIZ"))
+        print("<IIIZ> = %.5f Error = %.5f%%" %(iiiz_exp, abs(-1.0 - iiiz_exp) * 100))
+        zizi_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("ZIZI"))
+        print("<ZIZI> = %.5f Error = %.5f%%" %(zizi_exp, abs(1.0 - zizi_exp) * 100))
+        iziz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("IZIZ"))
+        print("<IZIZ> = %.5f Error = %.5f%%" %(iziz_exp, abs(1.0 - iziz_exp) * 100))
         zzzz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("ZZZZ"))
         print("<ZZZZ> = %.5f Error = %.5f%%" %(zzzz_exp, abs(1.0 - zzzz_exp) * 100))
         # Check for correct number of electrons
