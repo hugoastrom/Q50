@@ -16,7 +16,7 @@ import numpy as np
 import cmath, os
 from scipy.optimize import minimize
 
-from quantum_functions import qubit_mapping
+from quantum_functions import qubit_mapping, calibration_circuits, mitigate_counts, build_confusion_matrix
 
 class QubitAdaptVQE():
     
@@ -66,6 +66,13 @@ class QubitAdaptVQE():
         self.appended_ops = []
         self.paramstring = []
 
+        # Calibrate for error mitigation
+        self.cal_circs, self.labels = calibration_circuits(self.nqubits)
+        transpiled = transpile(self.cal_circs, backend=self.backend)
+        job = self.backend.run(transpiled, shots=self.shots)
+        results = job.result()
+        self.M_inv = build_confusion_matrix(self.nqubits, self.labels, results)
+
     def estimator_dict(self, estimator):
         #d = {"estimator": Estimator(),
         #     "backend_estimator": BackendEstimatorV2(backend = self.backend),
@@ -87,7 +94,7 @@ class QubitAdaptVQE():
         def apply_basis_rotation(qc, pauli_string):
             """ Rotate to measurement basis """
 
-            n = len(pauli_string)
+            #n = len(pauli_string)
             for i, p in enumerate(pauli_string):
                 #p = pauli_string[n - 1 - i]
                 if p == 'X':
@@ -137,29 +144,55 @@ class QubitAdaptVQE():
             #pauli = circuit[1]
             #coeff = circuit[2]
             shots = sum(counts.values())
+#######################################################################################
+# Pauli grouping
+            #group_exp = 0
 
-            group_exp = 0
-
-            for pauli, coeff in zip(group.paulis, group.coeffs):
-                exp = 0
-                label = pauli.to_label()
-                n = len(label)
-                for bitstring, count in counts.items():
+            #for pauli, coeff in zip(group.paulis, group.coeffs):
+            #    exp = 0
+            #    label = pauli.to_label()
+            #    n = len(label)
+            #    for bitstring, count in counts.items():
                     #bitstring = bitstring[::-1]
-                    parity = 1
+            #        parity = 1
                     #print("Bitstring", bitstring, "pauli", label)
-                    for i in range(n):
+            #        for i in range(n):
                         #p = label[n - 1 - i]
                         #if p != 'I':
-                        if label[i] != "I":
-                            if bitstring[i] == '1':
-                                parity *= -1
-                    exp += parity * count / shots
+            #            if label[i] != "I":
+            #                if bitstring[i] == '1':
+            #                    parity *= -1
+            #        exp += parity * count / shots
                     #print("Count", count, "Exp", exp, "\n")
                     
-                group_exp += coeff.real * exp
-            total += group_exp
+            #    group_exp += coeff.real * exp
+            #total += group_exp
             #print("Coeff", coeff, "Total", total)
+########################################################################################
+            exp = 0
+            label = pauli.to_label()
+            n = len(label)
+            
+            mitigated = mitigate_counts(counts, self.labels, self.nqubits, self.M_inv)
+
+            def index_to_bitstring(i, n):
+                return format(i, f"0{n}b")
+            
+            #for bitstring, count in counts.items():
+            for j, prob in enumerate(mitigated):
+                bitstring = index_to_bitstring(j, self.nqubits)
+                parity = 1
+                for i in range(n):
+                    #p = label[n - 1 - i]
+                    #if p != 'I':
+                    if label[i] != "I":
+                        if bitstring[i] == '1':
+                            parity *= -1
+                #exp += parity * count / shots
+                exp += parity * prob
+                
+            total += coeff.real * exp
+######################################################################################
 
         return total
 
