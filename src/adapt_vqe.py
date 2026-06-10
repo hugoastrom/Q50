@@ -16,11 +16,11 @@ import numpy as np
 import cmath, os
 from scipy.optimize import minimize
 
-from quantum_functions import qubit_mapping
+from quantum_functions import qubit_mapping, calibration_circuits, mitigate_counts, build_confusion_matrix
 
 class QubitAdaptVQE():
     
-    def __init__(self, mol, optimizer, shots = 5000, conv_thr = 1e-6):
+    def __init__(self, mol, optimizer, shots = 1000, conv_thr = 1e-6):
         """
         Args:
             mo_occs (list): MO occupations
@@ -66,6 +66,13 @@ class QubitAdaptVQE():
         self.appended_ops = []
         self.paramstring = []
 
+        # Calibrate for error mitigation
+        self.cal_circs, self.labels = calibration_circuits(self.nqubits)
+        transpiled = transpile(self.cal_circs, backend=self.backend)
+        job = self.backend.run(transpiled, shots=self.shots)
+        results = job.result()
+        self.M_inv = build_confusion_matrix(self.nqubits, self.labels, results)
+
     def estimator_dict(self, estimator):
         #d = {"estimator": Estimator(),
         #     "backend_estimator": BackendEstimatorV2(backend = self.backend),
@@ -87,7 +94,7 @@ class QubitAdaptVQE():
         def apply_basis_rotation(qc, pauli_string):
             """ Rotate to measurement basis """
 
-            n = len(pauli_string)
+            #n = len(pauli_string)
             for i, p in enumerate(pauli_string):
                 #p = pauli_string[n - 1 - i]
                 if p == 'X':
@@ -97,15 +104,16 @@ class QubitAdaptVQE():
                     qc.h(i)
             return
 
-        #groups = op.group_commuting(qubit_wise=True)
+        groups = op.group_commuting(qubit_wise=True)
 
         circuits = []
 
-        #for group in groups:
-        for pauli, coeff in zip(op.paulis, op.coeffs):
+        for group in groups:
+        #for pauli, coeff in zip(op.paulis, op.coeffs):
             qc_copy = qc.copy()
 
-            #rep = group.paulis[0].to_label()
+            # Pick one representative Pauli string for basis rotation
+            pauli = group.paulis[0]
             apply_basis_rotation(qc_copy, pauli.to_label())
 
             # Add measurements
@@ -113,7 +121,8 @@ class QubitAdaptVQE():
             qc_copy.add_register(creg)
             for i in range(self.nqubits):
                 qc_copy.measure(i, i)
-            circuits.append((qc_copy, pauli, coeff))
+            #circuits.append((qc_copy, pauli, coeff))
+            circuits.append((qc_copy, group))
 
         return circuits
 
@@ -122,23 +131,56 @@ class QubitAdaptVQE():
 
         circuits = self.map_to_iqm_circuit(qc, op)
         total = 0
-        for circuit in circuits:
-            c = circuit[0]
-            #print(c.draw(fold=-1))
+        #for circuit in circuits:
+        for circuit, group in circuits:
+            c = circuit
+            #print(c.draw())
+            #print("Pauli", circuit[1], "Coeff", circuit[2])
             trans_c = transpile(c, backend=self.backend, optimization_level=0, initial_layout=list(range(self.nqubits)))
-            #print(trans_c.draw(fold=-1))
             job = self.backend.run(trans_c, shots=self.shots)
             result = job.result()
             counts = result.get_counts()
 
-            pauli = circuit[1]
-            coeff = circuit[2]
+            #pauli = circuit[1]
+            #coeff = circuit[2]
             shots = sum(counts.values())
+#######################################################################################
+# Pauli grouping
+            #group_exp = 0
+
+            #for pauli, coeff in zip(group.paulis, group.coeffs):
+            #    exp = 0
+            #    label = pauli.to_label()
+            #    n = len(label)
+            #    for bitstring, count in counts.items():
+                    #bitstring = bitstring[::-1]
+            #        parity = 1
+                    #print("Bitstring", bitstring, "pauli", label)
+            #        for i in range(n):
+                        #p = label[n - 1 - i]
+                        #if p != 'I':
+            #            if label[i] != "I":
+            #                if bitstring[i] == '1':
+            #                    parity *= -1
+            #        exp += parity * count / shots
+                    #print("Count", count, "Exp", exp, "\n")
+                    
+            #    group_exp += coeff.real * exp
+            #total += group_exp
+            #print("Coeff", coeff, "Total", total)
+########################################################################################
             exp = 0
             label = pauli.to_label()
             n = len(label)
-            for bitstring, count in counts.items():
-                #bitstring = bitstring[::-1]
+            
+            mitigated = mitigate_counts(counts, self.labels, self.nqubits, self.M_inv)
+
+            def index_to_bitstring(i, n):
+                return format(i, f"0{n}b")
+            
+            #for bitstring, count in counts.items():
+            for j, prob in enumerate(mitigated):
+                bitstring = index_to_bitstring(j, self.nqubits)
                 parity = 1
                 for i in range(n):
                     #p = label[n - 1 - i]
@@ -146,9 +188,11 @@ class QubitAdaptVQE():
                     if label[i] != "I":
                         if bitstring[i] == '1':
                             parity *= -1
-                exp += parity * count / shots
+                #exp += parity * count / shots
+                exp += parity * prob
                 
             total += coeff.real * exp
+######################################################################################
 
         return total
 
@@ -351,14 +395,22 @@ class QubitAdaptVQE():
     
     def minimize_energy(self, maxiter):
         
-
-        print("-----Sanity checks-----")
-        print(self.calc_exp_val(self.state_prep(), SparsePauliOp("ZZZZ")))
+        print("_______________________")
+        print("-----Sanity checks-----\n")
+        iiiz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("IIIZ"))
+        print("<IIIZ> = %.5f Error = %.5f%%" %(iiiz_exp, abs(-1.0 - iiiz_exp) * 100))
+        zizi_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("ZIZI"))
+        print("<ZIZI> = %.5f Error = %.5f%%" %(zizi_exp, abs(1.0 - zizi_exp) * 100))
+        iziz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("IZIZ"))
+        print("<IZIZ> = %.5f Error = %.5f%%" %(iziz_exp, abs(1.0 - iziz_exp) * 100))
+        zzzz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("ZZZZ"))
+        print("<ZZZZ> = %.5f Error = %.5f%%" %(zzzz_exp, abs(1.0 - zzzz_exp) * 100))
         # Check for correct number of electrons
         C, D = qubit_mapping(2 * self.mol.get_norb(), mapping="jordan_wigner")
         N_op = sum(C[p] @ D[p] for p in range(self.nqubits))
-        print("Number of electrons =", self.calc_exp_val(self.state_prep(), N_op))
-        operator = SparsePauliOp("IIII")#SparsePauliOp(['YXYY', 'YYYX', 'YXXX', 'YYXY', 'XXYX', 'XYYY', 'XXXY', 'XYXX'],coeffs=[-0.125+0.j, -0.125+0.j, -0.125+0.j,  0.125+0.j, -0.125+0.j,  0.125+0.j,0.125+0.j,  0.125+0.j])
+        Nel = self.calc_exp_val(self.state_prep(), N_op)
+        print("Number of electrons = %.5f Error = %.5f%%" %(Nel, abs(1.0 -  Nel / 2.0)))
+        #SparsePauliOp(['YXYY', 'YYYX', 'YXXX', 'YYXY', 'XXYX', 'XYYY', 'XXXY', 'XYXX'],coeffs=[-0.125+0.j, -0.125+0.j, -0.125+0.j,  0.125+0.j, -0.125+0.j,  0.125+0.j,0.125+0.j,  0.125+0.j])
         #for theta in [0.0, 0.1, 0.2]:
         #    psi = self.state_prep()
         #    evolution = PauliEvolutionGate(operator, time=theta, synthesis=LieTrotter(reps=1))
