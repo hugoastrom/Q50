@@ -20,7 +20,7 @@ from quantum_functions import qubit_mapping, calibration_circuits, mitigate_coun
 
 class QubitAdaptVQE():
     
-    def __init__(self, mol, optimizer, shots = 1000, conv_thr = 1e-6):
+    def __init__(self, mol, optimizer, shots = 10000, conv_thr = 1e-6):
         """
         Args:
             mo_occs (list): MO occupations
@@ -74,10 +74,6 @@ class QubitAdaptVQE():
         self.M_inv = build_confusion_matrix(self.nqubits, self.labels, results)
 
     def estimator_dict(self, estimator):
-        #d = {"estimator": Estimator(),
-        #     "backend_estimator": BackendEstimatorV2(backend = self.backend),
-        #     "statevector_estimator": StatevectorEstimator()
-        #}
         d = {"backend_estimator": BackendEstimatorV2(backend = self.backend),
              "statevector_estimator": StatevectorEstimator()
              }
@@ -109,7 +105,6 @@ class QubitAdaptVQE():
         circuits = []
 
         for group in groups:
-        #for pauli, coeff in zip(op.paulis, op.coeffs):
             qc_copy = qc.copy()
 
             # Pick one representative Pauli string for basis rotation
@@ -131,68 +126,45 @@ class QubitAdaptVQE():
 
         circuits = self.map_to_iqm_circuit(qc, op)
         total = 0
-        #for circuit in circuits:
+
         for circuit, group in circuits:
             c = circuit
-            #print(c.draw())
-            #print("Pauli", circuit[1], "Coeff", circuit[2])
             trans_c = transpile(c, backend=self.backend, optimization_level=0, initial_layout=list(range(self.nqubits)))
             job = self.backend.run(trans_c, shots=self.shots)
             result = job.result()
             counts = result.get_counts()
 
-            #pauli = circuit[1]
-            #coeff = circuit[2]
             shots = sum(counts.values())
-#######################################################################################
-# Pauli grouping
-            #group_exp = 0
 
-            #for pauli, coeff in zip(group.paulis, group.coeffs):
-            #    exp = 0
-            #    label = pauli.to_label()
-            #    n = len(label)
-            #    for bitstring, count in counts.items():
-                    #bitstring = bitstring[::-1]
-            #        parity = 1
-                    #print("Bitstring", bitstring, "pauli", label)
-            #        for i in range(n):
+            group_exp = 0
+
+            for pauli, coeff in zip(group.paulis, group.coeffs):
+                exp = 0
+                label = pauli.to_label()
+                n = len(label)
+            
+                mitigated = mitigate_counts(counts, self.labels, self.nqubits, self.M_inv)
+
+                def index_to_bitstring(i, n):
+                    return format(i, f"0{n}b")
+            
+                #for bitstring, count in counts.items():
+                for j, prob in enumerate(mitigated):
+                    bitstring = index_to_bitstring(j, self.nqubits)
+                    parity = 1
+                    for i in range(n):
                         #p = label[n - 1 - i]
                         #if p != 'I':
-            #            if label[i] != "I":
-            #                if bitstring[i] == '1':
-            #                    parity *= -1
-            #        exp += parity * count / shots
-                    #print("Count", count, "Exp", exp, "\n")
-                    
-            #    group_exp += coeff.real * exp
-            #total += group_exp
-            #print("Coeff", coeff, "Total", total)
-########################################################################################
-            exp = 0
-            label = pauli.to_label()
-            n = len(label)
-            
-            mitigated = mitigate_counts(counts, self.labels, self.nqubits, self.M_inv)
+                        if label[i] != "I":
+                            #if bistring[i] == "1":
+                            if bitstring[n - 1 - i] == '1':
+                                parity *= -1
 
-            def index_to_bitstring(i, n):
-                return format(i, f"0{n}b")
-            
-            #for bitstring, count in counts.items():
-            for j, prob in enumerate(mitigated):
-                bitstring = index_to_bitstring(j, self.nqubits)
-                parity = 1
-                for i in range(n):
-                    #p = label[n - 1 - i]
-                    #if p != 'I':
-                    if label[i] != "I":
-                        if bitstring[i] == '1':
-                            parity *= -1
-                #exp += parity * count / shots
-                exp += parity * prob
-                
-            total += coeff.real * exp
-######################################################################################
+                    exp += parity * prob
+                group_exp += coeff.real * exp
+                print(pauli, coeff, group_exp)
+            print("\n")
+            total += group_exp
 
         return total
 
@@ -401,8 +373,10 @@ class QubitAdaptVQE():
         print("<IIIZ> = %.5f Error = %.5f%%" %(iiiz_exp, abs(-1.0 - iiiz_exp) * 100))
         zizi_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("ZIZI"))
         print("<ZIZI> = %.5f Error = %.5f%%" %(zizi_exp, abs(1.0 - zizi_exp) * 100))
-        iziz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("IZIZ"))
-        print("<IZIZ> = %.5f Error = %.5f%%" %(iziz_exp, abs(1.0 - iziz_exp) * 100))
+        ziiz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("ZIIZ"))
+        print("<ZIIZ> = %.5f Error = %.5f%%" %(ziiz_exp, abs(-1.0 - ziiz_exp) * 100))
+        izzz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("IZZZ"))
+        print("<IZZZ> = %.5f Error = %.5f%%" %(izzz_exp, abs(1.0 - izzz_exp) * 100))
         zzzz_exp = self.calc_exp_val(self.state_prep(), SparsePauliOp("ZZZZ"))
         print("<ZZZZ> = %.5f Error = %.5f%%" %(zzzz_exp, abs(1.0 - zzzz_exp) * 100))
         # Check for correct number of electrons
