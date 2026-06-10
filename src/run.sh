@@ -11,11 +11,6 @@
 module use /appl/local/quantum/modulefiles
 module load fiqci-vtt-qiskit/
 
-python -m pip install --user pyscf
-python -m pip install --user numpy
-python -m pip install --user scipy
-python -m pip install --user qiskit_nature
-
 export DEVICES=("Q50")
 source $RUN_SETUP
 
